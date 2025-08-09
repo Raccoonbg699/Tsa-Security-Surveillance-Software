@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableView,
-    QPushButton, QLineEdit, QAbstractItemView, QHeaderView, QSpacerItem, QSizePolicy,
-    QGridLayout, QComboBox, QListWidget
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QLineEdit, QSpacerItem, QSizePolicy,
+    QGridLayout, QComboBox, QListWidget, QFormLayout, QFileDialog
 )
 from PySide6.QtCore import Qt
 
@@ -143,3 +143,52 @@ class RecordingsPage(QWidget):
         is_selected = bool(self.list_widget.selectedItems())
         self.view_button.setEnabled(is_selected)
         self.delete_button.setEnabled(is_selected)
+
+class SettingsPage(QWidget):
+    """Страница за настройки на приложението."""
+    def __init__(self):
+        super().__init__()
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        title = QLabel("Настройки")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+
+        form_layout = QFormLayout()
+        form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Тъмна", "Светла"])
+        
+        self.grid_combo = QComboBox()
+        self.grid_combo.addItems(["1x1", "2x2", "3x3"])
+
+        path_layout = QHBoxLayout()
+        self.path_edit = QLineEdit()
+        self.path_edit.setReadOnly(True)
+        browse_button = QPushButton("Избери папка...")
+        browse_button.clicked.connect(self.select_recording_path)
+        path_layout.addWidget(self.path_edit, 1)
+        path_layout.addWidget(browse_button)
+
+        form_layout.addRow("Тема на приложението:", self.theme_combo)
+        form_layout.addRow("Изглед по подразбиране:", self.grid_combo)
+        form_layout.addRow("Папка за записи:", path_layout)
+        
+        self.save_button = QPushButton("Запази промените")
+
+        layout.addWidget(title)
+        layout.addLayout(form_layout)
+        layout.addStretch()
+        layout.addWidget(self.save_button, 0, Qt.AlignmentFlag.AlignRight)
+
+    def select_recording_path(self):
+        """Отваря диалог за избор на папка."""
+        directory = QFileDialog.getExistingDirectory(self, "Изберете папка за записи")
+        if directory:
+            self.path_edit.setText(directory)

@@ -10,7 +10,7 @@ from PySide6.QtCore import QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QIcon
 
 from data_manager import DataManager
-from ui_pages import CamerasPage, LiveViewPage, RecordingsPage
+from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage
 from ui_dialogs import CameraDialog
 from network_scanner import NetworkScanner, get_local_subnet
 from video_worker import VideoWorker
@@ -76,6 +76,8 @@ class MainWindow(QMainWindow):
             self.setup_recordings_page()
         elif page_name == "cameras":
             self.refresh_cameras_view()
+        elif page_name == "settings":
+            self.load_settings()
 
     def show_live_view_page(self):
         page_name = "live_view"
@@ -125,13 +127,41 @@ class MainWindow(QMainWindow):
     def show_settings_page(self):
         page_name = "settings"
         if page_name not in self.created_pages:
-            page = QLabel("Страница 'Настройки'")
-            page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            page = SettingsPage()
             page.page_name = page_name
+            page.save_button.clicked.connect(self.save_settings)
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
     
+    # --- МЕТОДИ ЗА НАСТРОЙКИ (ЛИПСВАЩИТЕ МЕТОДИ СА ТУК) ---
+    def load_settings(self):
+        """Зарежда настройките и ги показва в интерфейса."""
+        page = self.created_pages.get("settings")
+        if not page: return
+
+        settings_data = DataManager.load_settings()
+        
+        page.theme_combo.setCurrentText("Тъмна" if settings_data.get("theme") == "dark" else "Светла")
+        page.grid_combo.setCurrentText(settings_data.get("default_grid", "2x2"))
+        page.path_edit.setText(settings_data.get("recording_path", ""))
+
+    def save_settings(self):
+        """Взима данните от интерфейса и ги записва във файла."""
+        page = self.created_pages.get("settings")
+        if not page: return
+        
+        new_settings = {
+            "theme": "dark" if page.theme_combo.currentText() == "Тъмна" else "light",
+            "default_grid": page.grid_combo.currentText(),
+            "recording_path": page.path_edit.text()
+        }
+        
+        DataManager.save_settings(new_settings)
+        
+        QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
+        
+    # --- Други методи ---
     def start_all_streams(self):
         if self.video_workers: return
         cameras_data = DataManager.load_cameras()
@@ -165,7 +195,7 @@ class MainWindow(QMainWindow):
         for cam in cameras_data:
             item_text = f"{cam['name']} ({'Активна' if cam['is_active'] else 'Неактивна'})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, cam) # Скриваме данните в елемента
+            item.setData(Qt.ItemDataRole.UserRole, cam)
             page.list_widget.addItem(item)
     
     def refresh_recordings_view(self):
@@ -173,7 +203,6 @@ class MainWindow(QMainWindow):
         if not page: return
 
         all_events = DataManager.load_events()
-        # Попълване на филтрите
         cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
         event_types = sorted(list(set(event.get("event_type") for event in all_events)))
         page.camera_filter.blockSignals(True)
@@ -186,7 +215,6 @@ class MainWindow(QMainWindow):
         page.event_type_filter.addItems(event_types)
         page.camera_filter.blockSignals(False)
         page.event_type_filter.blockSignals(False)
-
         self.apply_event_filters()
 
     def apply_event_filters(self):
@@ -240,7 +268,6 @@ class MainWindow(QMainWindow):
         
         if reply == QMessageBox.StandardButton.Yes:
             all_events = DataManager.load_events()
-            # Намираме и премахваме събитието по ID
             updated_events = [e for e in all_events if e.get("event_id") != event_to_delete.get("event_id")]
             DataManager.save_events(updated_events)
             self.refresh_recordings_view()
@@ -310,7 +337,6 @@ class MainWindow(QMainWindow):
         self.stop_all_streams()
         event.accept()
 
-    # ... другите методи като update_grid_layout, toggle_fullscreen, scan_network остават същите
     def update_grid_layout(self):
         page = self.created_pages.get("live_view")
         if not page: return
@@ -355,6 +381,6 @@ class MainWindow(QMainWindow):
                     widget.show()
                 else:
                     widget.hide()
-
+                    
     def scan_network(self):
         pass

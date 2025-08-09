@@ -63,3 +63,37 @@ class DataManager:
         events_file = DATA_DIR / "events.json"
         with open(events_file, "w", encoding="utf-8") as f:
             json.dump(events_data, f, indent=4, ensure_ascii=False)
+            
+    @staticmethod
+    def load_settings():
+        """Зарежда настройките от settings.json."""
+        DATA_DIR.mkdir(exist_ok=True)
+        settings_file = DATA_DIR / "settings.json"
+
+        if not settings_file.exists():
+            # Връщаме настройки по подразбиране, ако файлът липсва
+            return {
+                "theme": "dark",
+                "default_grid": "2x2",
+                "recording_path": str(Path.home() / "Videos" / "TSA-Security")
+            }
+
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print("Предупреждение: Файлът 'settings.json' е повреден. Зареждат се настройки по подразбиране.")
+            # При грешка, отново връщаме стандартни настройки
+            return {
+                "theme": "dark",
+                "default_grid": "2x2",
+                "recording_path": str(Path.home() / "Videos" / "TSA-Security")
+            }
+
+    @staticmethod
+    def save_settings(settings_data):
+        """Записва настройките в settings.json."""
+        DATA_DIR.mkdir(exist_ok=True)
+        settings_file = DATA_DIR / "settings.json"
+        with open(settings_file, "w", encoding="utf-8") as f:
+            json.dump(settings_data, f, indent=4, ensure_ascii=False)
