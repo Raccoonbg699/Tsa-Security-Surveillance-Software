@@ -1,0 +1,56 @@
+/* style.qss */
+QWidget {
+    background-color: #252526;
+    color: #CCCCCC;
+    font-family: Arial;
+    font-size: 14px;
+}
+
+QMainWindow, QDialog {
+    background-color: #252526;
+}
+
+QLabel {
+    background-color: transparent;
+}
+
+QLineEdit {
+    background-color: #2D2D30;
+    border: 1px solid #3E3E42;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+QPushButton {
+    background-color: #007ACC;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 4px;
+}
+
+QPushButton:hover {
+    background-color: #0099E6;
+}
+
+QPushButton:disabled {
+    background-color: #3E3E42;
+    color: #888888;
+}
+
+/* Стил за навигационните бутони в страничната лента */
+QPushButton#NavButton {
+    background-color: transparent;
+    border: none;
+    padding: 10px;
+    text-align: left;
+    border-radius: 5px;
+}
+
+QPushButton#NavButton:hover {
+    background-color: #2D2D30;
+}
+
+QPushButton#NavButton:checked {
+    background-color: #007ACC;
+}
