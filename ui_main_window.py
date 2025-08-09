@@ -1,14 +1,16 @@
 import uuid
+import os
+import subprocess
+import sys
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog
+    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem
 )
-from PySide6.QtCore import QSize, Qt, QThread
+from PySide6.QtCore import QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QIcon
 
 from data_manager import DataManager
-from models import CameraTableModel
-from ui_pages import CamerasPage, LiveViewPage
+from ui_pages import CamerasPage, LiveViewPage, RecordingsPage
 from ui_dialogs import CameraDialog
 from network_scanner import NetworkScanner, get_local_subnet
 from video_worker import VideoWorker
@@ -21,11 +23,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("TSA-Security")
         self.setGeometry(100, 100, 1280, 720)
 
-        self.cameras_data = DataManager.load_cameras()
         self.video_workers = {}
         self.active_video_widgets = {}
-        self.scanner_thread = None
-        self.scanner = None
+        self.created_pages = {}
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -40,6 +40,10 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
         sidebar_layout.setSpacing(10)
 
+        self.pages = QStackedWidget()
+        main_layout.addWidget(sidebar)
+        main_layout.addWidget(self.pages)
+        
         btn_live_view = self.create_nav_button("Изглед на живо", "icons/video-camera.png")
         btn_cameras = self.create_nav_button("Камери", "icons/camera.png")
         btn_recordings = self.create_nav_button("Записи", "icons/archive.png")
@@ -51,233 +55,242 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch()
         sidebar_layout.addWidget(btn_settings)
 
-        self.pages = QStackedWidget()
-        btn_live_view.clicked.connect(lambda: self.pages.setCurrentIndex(0))
-        btn_cameras.clicked.connect(lambda: self.pages.setCurrentIndex(1))
-        btn_recordings.clicked.connect(lambda: self.pages.setCurrentIndex(2))
-        btn_settings.clicked.connect(lambda: self.pages.setCurrentIndex(3))
-
-        self.page_live_view = LiveViewPage()
-        self.page_live_view.grid_1x1_button.clicked.connect(self.update_grid_layout)
-        self.page_live_view.grid_2x2_button.clicked.connect(self.update_grid_layout)
-        self.page_live_view.grid_3x3_button.clicked.connect(self.update_grid_layout)
-
-        self.camera_table_model = CameraTableModel(self.cameras_data)
-        self.page_cameras = CamerasPage(self.camera_table_model)
-
-        page_recordings = QLabel("Страница 'Записи'")
-        page_recordings.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        page_settings = QLabel("Страница 'Настройки'")
-        page_settings.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.pages.addWidget(self.page_live_view)
-        self.pages.addWidget(self.page_cameras)
-        self.pages.addWidget(page_recordings)
-        self.pages.addWidget(page_settings)
-
+        btn_live_view.clicked.connect(self.show_live_view_page)
+        btn_cameras.clicked.connect(self.show_cameras_page)
+        btn_recordings.clicked.connect(self.show_recordings_page)
+        btn_settings.clicked.connect(self.show_settings_page)
+        
         btn_live_view.setChecked(True)
+        self.show_live_view_page()
+    
+    def switch_to_page(self, page_name):
+        current_widget = self.pages.currentWidget()
+        if hasattr(current_widget, 'page_name') and current_widget.page_name == "live_view":
+             self.stop_all_streams()
 
-        main_layout.addWidget(sidebar)
-        main_layout.addWidget(self.pages)
+        self.pages.setCurrentWidget(self.created_pages[page_name])
+        
+        if page_name == "live_view":
+            self.start_all_streams()
+        elif page_name == "recordings":
+            self.setup_recordings_page()
+        elif page_name == "cameras":
+            self.refresh_cameras_view()
 
-        add_button = self.page_cameras.findChild(QPushButton, "qt_find_add_button")
-        add_button.clicked.connect(self.add_camera)
-        self.page_cameras.edit_button.clicked.connect(self.edit_camera)
-        self.page_cameras.delete_button.clicked.connect(self.delete_camera)
-        self.page_cameras.scan_button.clicked.connect(self.scan_network)
+    def show_live_view_page(self):
+        page_name = "live_view"
+        if page_name not in self.created_pages:
+            page = LiveViewPage()
+            page.page_name = page_name
+            page.grid_1x1_button.clicked.connect(self.update_grid_layout)
+            page.grid_2x2_button.clicked.connect(self.update_grid_layout)
+            page.grid_3x3_button.clicked.connect(self.update_grid_layout)
+            self.created_pages[page_name] = page
+            self.pages.addWidget(page)
+        self.switch_to_page(page_name)
 
-        self.start_all_streams()
+    def show_cameras_page(self):
+        page_name = "cameras"
+        if page_name not in self.created_pages:
+            page = CamerasPage()
+            page.page_name = page_name
+            page.add_button.clicked.connect(self.add_camera)
+            page.edit_button.clicked.connect(self.edit_camera)
+            page.delete_button.clicked.connect(self.delete_camera)
+            self.created_pages[page_name] = page
+            self.pages.addWidget(page)
+        self.switch_to_page(page_name)
 
-    def update_grid_layout(self):
-        """
-        Пренарежда видео уиджетите според избрания изглед (НОВА ЛОГИКА).
-        """
-        # 1. Първо скриваме всички уиджети
-        for widget in self.active_video_widgets.values():
-            widget.hide()
-            widget.setParent(None) # Премахваме ги от мрежата
+    def show_recordings_page(self):
+        page_name = "recordings"
+        if page_name not in self.created_pages:
+            page = RecordingsPage()
+            page.page_name = page_name
+            self.created_pages[page_name] = page
+            self.pages.addWidget(page)
+        self.switch_to_page(page_name)
+    
+    def setup_recordings_page(self):
+        page = self.created_pages.get("recordings")
+        if not page or hasattr(page, 'is_setup'): return
+        
+        page.view_button.clicked.connect(self.view_event)
+        page.delete_button.clicked.connect(self.delete_event)
+        page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
+        page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
+        
+        self.refresh_recordings_view()
+        page.is_setup = True
 
-        # 2. Взимаме списък с всички активни уиджети
-        all_widgets = list(self.active_video_widgets.values())
-        widgets_to_show = []
-        cols = 1
-
-        # 3. Определяме кои уиджети да се покажат и в колко колони
-        if self.page_live_view.grid_1x1_button.isChecked():
-            cols = 1
-            widgets_to_show = all_widgets[:1]  # Взимаме само първия
-        elif self.page_live_view.grid_2x2_button.isChecked():
-            cols = 2
-            widgets_to_show = all_widgets[:4]  # Взимаме до 4
-        elif self.page_live_view.grid_3x3_button.isChecked():
-            cols = 3
-            widgets_to_show = all_widgets[:9]  # Взимаме до 9
-
-        if not widgets_to_show:
-            return
-
-        # 4. Добавяме и показваме само избраните уиджети
-        for idx, widget in enumerate(widgets_to_show):
-            row, col = idx // cols, idx % cols
-            self.page_live_view.grid_layout.addWidget(widget, row, col)
-            widget.show()
-
+    def show_settings_page(self):
+        page_name = "settings"
+        if page_name not in self.created_pages:
+            page = QLabel("Страница 'Настройки'")
+            page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            page.page_name = page_name
+            self.created_pages[page_name] = page
+            self.pages.addWidget(page)
+        self.switch_to_page(page_name)
+    
     def start_all_streams(self):
-        self.stop_all_streams()
-
-        active_cameras = [cam for cam in self.cameras_data if cam.get("is_active")]
-
+        if self.video_workers: return
+        cameras_data = DataManager.load_cameras()
+        active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
-
             frame_widget = VideoFrame(camera_name=cam_data.get("name"), camera_id=cam_id)
             frame_widget.double_clicked.connect(self.toggle_fullscreen_camera)
-
             worker = VideoWorker(rtsp_url=cam_data.get("rtsp_url"))
             worker.ImageUpdate.connect(frame_widget.update_frame)
             worker.StreamStatus.connect(frame_widget.update_status)
             worker.start()
-
             self.video_workers[cam_id] = worker
             self.active_video_widgets[cam_id] = frame_widget
-
         self.update_grid_layout()
 
     def stop_all_streams(self):
+        if not self.video_workers: return
         for worker in self.video_workers.values():
             worker.stop()
         self.video_workers.clear()
-
         for widget in self.active_video_widgets.values():
             widget.deleteLater()
         self.active_video_widgets.clear()
-
-    def toggle_fullscreen_camera(self):
-        sender_widget = self.sender()
-        sender_id = sender_widget.camera_id
-
-        is_fullscreen = any(widget.property("fullscreen") for widget in self.active_video_widgets.values())
-
-        if is_fullscreen:
-            # Деактивираме fullscreen за всички
-            for widget in self.active_video_widgets.values():
-                widget.setProperty("fullscreen", False)
-            # Връщаме нормалния изглед
-            self.update_grid_layout()
-        else:
-            # Показваме само кликнатия уиджет
-            for cam_id, widget in self.active_video_widgets.items():
-                if cam_id == sender_id:
-                    widget.setProperty("fullscreen", True)
-                    # Преместваме го в клетка (0,0) на мрежата
-                    self.page_live_view.grid_layout.addWidget(widget, 0, 0)
-                    widget.show() # Уверяваме се, че е видим
-                else:
-                    widget.hide() # Скриваме всички останали
-
+    
     def refresh_cameras_view(self):
-        self.camera_table_model.update_data(self.cameras_data)
-        DataManager.save_cameras(self.cameras_data)
-        self.page_cameras.on_selection_changed()
-        self.start_all_streams()
+        page = self.created_pages.get("cameras")
+        if not page: return
+        page.list_widget.clear()
+        cameras_data = DataManager.load_cameras()
+        for cam in cameras_data:
+            item_text = f"{cam['name']} ({'Активна' if cam['is_active'] else 'Неактивна'})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, cam) # Скриваме данните в елемента
+            page.list_widget.addItem(item)
+    
+    def refresh_recordings_view(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
 
-    def closeEvent(self, event):
-        self.stop_all_streams()
-        event.accept()
+        all_events = DataManager.load_events()
+        # Попълване на филтрите
+        cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
+        event_types = sorted(list(set(event.get("event_type") for event in all_events)))
+        page.camera_filter.blockSignals(True)
+        page.event_type_filter.blockSignals(True)
+        page.camera_filter.clear()
+        page.event_type_filter.clear()
+        page.camera_filter.addItem("Всички камери")
+        page.event_type_filter.addItem("Всички типове")
+        page.camera_filter.addItems(cameras)
+        page.event_type_filter.addItems(event_types)
+        page.camera_filter.blockSignals(False)
+        page.event_type_filter.blockSignals(False)
 
-    def scan_network(self):
-        subnet = get_local_subnet()
-        if not subnet:
-            QMessageBox.critical(self, "Грешка", "Не може да бъде определена локалната мрежа.")
+        self.apply_event_filters()
+
+    def apply_event_filters(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
+        
+        cam_filter = page.camera_filter.currentText()
+        type_filter = page.event_type_filter.currentText()
+        if "Всички" in cam_filter: cam_filter = ""
+        if "Всички" in type_filter: type_filter = ""
+        
+        page.list_widget.clear()
+        all_events = DataManager.load_events()
+
+        for event in all_events:
+            cam_match = cam_filter == "" or cam_filter == event.get("camera_name")
+            type_match = type_filter == "" or type_filter == event.get("event_type")
+            if cam_match and type_match:
+                item_text = f"{event['timestamp']} - {event['camera_name']} ({event['event_type']})"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, event)
+                page.list_widget.addItem(item)
+    
+    def view_event(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        
+        event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        file_path = event_data.get("file_path")
+
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
             return
+        
+        if sys.platform == "win32": os.startfile(file_path)
+        elif sys.platform == "darwin": subprocess.Popen(["open", file_path])
+        else: subprocess.Popen(["xdg-open", file_path])
 
-        self.progress_dialog = QProgressDialog("Сканиране на мрежата за камери...", "Прекрати", 0, 100, self)
-        self.progress_dialog.setWindowTitle("Сканиране")
-        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+    def delete_event(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
 
-        self.scanner_thread = QThread()
-        self.scanner = NetworkScanner(subnet)
-        self.scanner.moveToThread(self.scanner_thread)
-
-        self.progress_dialog.canceled.connect(self.scanner.cancel)
-        self.scanner.scan_progress.connect(self.progress_dialog.setValue)
-        self.scanner.camera_found.connect(self.handle_found_camera)
-        self.scanner.scan_finished.connect(self.on_scan_finished)
-
-        self.scanner_thread.started.connect(self.scanner.run)
-        self.page_cameras.scan_button.setEnabled(False)
-        self.scanner_thread.start()
-        self.progress_dialog.show()
-
-    def handle_found_camera(self, ip_address):
-        if any(cam.get('rtsp_url') and ip_address in cam.get('rtsp_url') for cam in self.cameras_data):
-            print(f"Камера с IP {ip_address} вече съществува. Пропускане.")
-            return
-
-        reply = QMessageBox.question(self,
-                                     "Намерена камера",
-                                     f"Намерена е потенциална камера на адрес {ip_address}.\nЖелаете ли да я добавите?",
+        event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        
+        reply = QMessageBox.question(self, "Потвърждение", "Сигурни ли сте?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
         if reply == QMessageBox.StandardButton.Yes:
-            cam_data = {
-                "name": f"Камера @ {ip_address}",
-                "rtsp_url": f"rtsp://{ip_address}:554/",
-                "is_active": True
-            }
-            dialog = CameraDialog(camera_data=cam_data, parent=self)
-            if dialog.exec():
-                new_data = dialog.get_data()
-                new_data["id"] = str(uuid.uuid4())
-                self.cameras_data.append(new_data)
-                self.refresh_cameras_view()
-
-    def on_scan_finished(self, message):
-        print(message)
-        self.progress_dialog.close()
-        self.page_cameras.scan_button.setEnabled(True)
-        if self.scanner_thread:
-            self.scanner_thread.quit()
-            self.scanner_thread.wait()
+            all_events = DataManager.load_events()
+            # Намираме и премахваме събитието по ID
+            updated_events = [e for e in all_events if e.get("event_id") != event_to_delete.get("event_id")]
+            DataManager.save_events(updated_events)
+            self.refresh_recordings_view()
 
     def add_camera(self):
         dialog = CameraDialog(parent=self)
         if dialog.exec():
             new_data = dialog.get_data()
-            if not new_data["name"] or not new_data["rtsp_url"]:
-                QMessageBox.warning(self, "Грешка", "Името и RTSP адресът не могат да бъдат празни.")
-                return
+            if not new_data["name"] or not new_data["rtsp_url"]: return
             new_data["id"] = str(uuid.uuid4())
-            self.cameras_data.append(new_data)
+            cameras_data = DataManager.load_cameras()
+            cameras_data.append(new_data)
+            DataManager.save_cameras(cameras_data)
             self.refresh_cameras_view()
 
     def edit_camera(self):
-        selected_rows = self.page_cameras.table_view.selectionModel().selectedRows()
-        if not selected_rows:
-            return
-        row_index = selected_rows[0].row()
-        camera_to_edit = self.cameras_data[row_index]
+        page = self.created_pages.get("cameras")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        
+        camera_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        
         dialog = CameraDialog(camera_data=camera_to_edit, parent=self)
         if dialog.exec():
             updated_data = dialog.get_data()
-            if not updated_data["name"] or not updated_data["rtsp_url"]:
-                QMessageBox.warning(self, "Грешка", "Името и RTSP адресът не могат да бъдат празни.")
-                return
-            camera_to_edit.update(updated_data)
+            if not updated_data["name"] or not updated_data["rtsp_url"]: return
+            
+            cameras_data = DataManager.load_cameras()
+            for i, cam in enumerate(cameras_data):
+                if cam.get("id") == camera_to_edit.get("id"):
+                    cameras_data[i].update(updated_data)
+                    break
+            DataManager.save_cameras(cameras_data)
             self.refresh_cameras_view()
 
     def delete_camera(self):
-        selected_rows = self.page_cameras.table_view.selectionModel().selectedRows()
-        if not selected_rows:
-            return
-        row_index = selected_rows[0].row()
-        camera_to_delete = self.cameras_data[row_index]
-        reply = QMessageBox.question(self,
-                                     "Потвърждение за изтриване",
-                                     f"Сигурни ли сте, че искате да изтриете камерата '{camera_to_delete['name']}'?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
+        page = self.created_pages.get("cameras")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        
+        camera_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+        reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{camera_to_delete['name']}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
-            del self.cameras_data[row_index]
+            cameras_data = DataManager.load_cameras()
+            updated_cameras = [c for c in cameras_data if c.get("id") != camera_to_delete.get("id")]
+            DataManager.save_cameras(updated_cameras)
             self.refresh_cameras_view()
 
     def create_nav_button(self, text, relative_icon_path):
@@ -292,3 +305,56 @@ class MainWindow(QMainWindow):
             print(f"Предупреждение: Иконата не е намерена: {full_icon_path}")
         button.setIconSize(QSize(24, 24))
         return button
+
+    def closeEvent(self, event):
+        self.stop_all_streams()
+        event.accept()
+
+    # ... другите методи като update_grid_layout, toggle_fullscreen, scan_network остават същите
+    def update_grid_layout(self):
+        page = self.created_pages.get("live_view")
+        if not page: return
+        
+        for widget in self.active_video_widgets.values():
+            widget.hide()
+            widget.setParent(None)
+
+        all_widgets = list(self.active_video_widgets.values())
+        widgets_to_show = []
+        cols = 1
+
+        if page.grid_1x1_button.isChecked():
+            cols = 1; widgets_to_show = all_widgets[:1]
+        elif page.grid_2x2_button.isChecked():
+            cols = 2; widgets_to_show = all_widgets[:4]
+        elif page.grid_3x3_button.isChecked():
+            cols = 3; widgets_to_show = all_widgets[:9]
+
+        if not widgets_to_show: return
+
+        for idx, widget in enumerate(widgets_to_show):
+            row, col = idx // cols, idx % cols
+            page.grid_layout.addWidget(widget, row, col)
+            widget.show()
+
+    def toggle_fullscreen_camera(self):
+        sender_widget = self.sender()
+        is_fullscreen = sender_widget.property("fullscreen")
+        page = self.created_pages.get("live_view")
+        if not page: return
+
+        if is_fullscreen:
+            for widget in self.active_video_widgets.values():
+                widget.setProperty("fullscreen", False)
+            self.update_grid_layout()
+        else:
+            for widget in self.active_video_widgets.values():
+                if widget == sender_widget:
+                    widget.setProperty("fullscreen", True)
+                    page.grid_layout.addWidget(widget, 0, 0)
+                    widget.show()
+                else:
+                    widget.hide()
+
+    def scan_network(self):
+        pass

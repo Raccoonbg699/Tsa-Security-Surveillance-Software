@@ -1,14 +1,14 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableView,
     QPushButton, QLineEdit, QAbstractItemView, QHeaderView, QSpacerItem, QSizePolicy,
-    QGridLayout
+    QGridLayout, QComboBox, QListWidget
 )
 from PySide6.QtCore import Qt
 
 class CamerasPage(QWidget):
-    def __init__(self, model):
+    """Страница за управление на камери (вече с QListWidget за стабилност)."""
+    def __init__(self):
         super().__init__()
-        self.model = model
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
@@ -21,14 +21,12 @@ class CamerasPage(QWidget):
 
         controls_layout = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Търсене по име или адрес...")
+        self.search_input.setPlaceholderText("Търсене...")
         
-        add_button = QPushButton("Добави камера")
-        add_button.setObjectName("qt_find_add_button") 
-        
+        self.add_button = QPushButton("Добави")
         self.edit_button = QPushButton("Редактирай")
         self.delete_button = QPushButton("Изтрий")
-        self.scan_button = QPushButton("Сканирай мрежата")
+        self.scan_button = QPushButton("Сканирай")
         
         self.edit_button.setEnabled(False)
         self.delete_button.setEnabled(False)
@@ -36,33 +34,24 @@ class CamerasPage(QWidget):
         controls_layout.addWidget(self.search_input, 1)
         controls_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         controls_layout.addWidget(self.scan_button)
-        controls_layout.addWidget(add_button)
+        controls_layout.addWidget(self.add_button)
         controls_layout.addWidget(self.edit_button)
         controls_layout.addWidget(self.delete_button)
 
-        self.table_view = QTableView()
-        self.table_view.setModel(self.model)
-        self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.table_view.verticalHeader().hide()
-        self.table_view.setAlternatingRowColors(True)
-        self.table_view.setStyleSheet("QTableView { alternate-background-color: #2D2D30; background-color: #252526; }")
-        
-        header = self.table_view.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("QListWidget::item { padding: 8px; }")
+        self.list_widget.setAlternatingRowColors(True)
 
-        self.table_view.selectionModel().selectionChanged.connect(self.on_selection_changed)
+        self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
 
         layout.addWidget(title)
         layout.addLayout(controls_layout)
-        layout.addWidget(self.table_view)
+        layout.addWidget(self.list_widget)
 
     def on_selection_changed(self):
-        is_row_selected = bool(self.table_view.selectionModel().selectedRows())
-        self.edit_button.setEnabled(is_row_selected)
-        self.delete_button.setEnabled(is_row_selected)
+        is_selected = bool(self.list_widget.selectedItems())
+        self.edit_button.setEnabled(is_selected)
+        self.delete_button.setEnabled(is_selected)
 
 class LiveViewPage(QWidget):
     def __init__(self):
@@ -105,3 +94,52 @@ class LiveViewPage(QWidget):
 
         main_layout.addLayout(controls_layout)
         main_layout.addWidget(self.grid_container, 1)
+
+class RecordingsPage(QWidget):
+    """Страница за преглед на записи (вече с QListWidget за стабилност)."""
+    def __init__(self):
+        super().__init__()
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        top_layout = QHBoxLayout()
+        title = QLabel("Преглед на записи")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+        
+        self.view_button = QPushButton("Преглед на запис")
+        self.delete_button = QPushButton("Изтрий запис")
+        self.view_button.setEnabled(False)
+        self.delete_button.setEnabled(False)
+
+        top_layout.addWidget(title)
+        top_layout.addStretch()
+        top_layout.addWidget(self.view_button)
+        top_layout.addWidget(self.delete_button)
+
+        filters_layout = QHBoxLayout()
+        filters_layout.addWidget(QLabel("Филтри:"))
+        self.camera_filter = QComboBox()
+        self.event_type_filter = QComboBox()
+        filters_layout.addWidget(self.camera_filter)
+        filters_layout.addWidget(self.event_type_filter)
+        filters_layout.addStretch()
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("QListWidget::item { padding: 8px; }")
+        self.list_widget.setAlternatingRowColors(True)
+        
+        self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
+
+        layout.addLayout(top_layout)
+        layout.addLayout(filters_layout)
+        layout.addWidget(self.list_widget)
+        
+    def on_selection_changed(self):
+        is_selected = bool(self.list_widget.selectedItems())
+        self.view_button.setEnabled(is_selected)
+        self.delete_button.setEnabled(is_selected)

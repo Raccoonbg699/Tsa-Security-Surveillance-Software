@@ -1,0 +1,16 @@
+[
+    {
+        "event_id": "evt-002",
+        "timestamp": "2025-08-09 23:01:10",
+        "camera_name": "Камера на врата",
+        "event_type": "Ръчен запис",
+        "file_path": "C:/path/to/your/videos/rec_20250809_230110.mp4"
+    },
+    {
+        "event_id": "evt-003",
+        "timestamp": "2025-08-10 00:05:00",
+        "camera_name": "Камера @ 192.168.1.13",
+        "event_type": "Снимка",
+        "file_path": "C:/path/to/your/videos/snap_20250810_000500.jpg"
+    }
+]
