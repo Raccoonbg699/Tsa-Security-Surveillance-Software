@@ -3,16 +3,17 @@ import os
 import subprocess
 import sys
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton, QStackedWidget, QSpacerItem, QSizePolicy, QListWidgetItem,
+    QMessageBox, QProgressDialog
 )
-from PySide6.QtCore import QSize, Qt, QThread, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, Signal, QThread, QTimer, QSize
+from PySide6.QtGui import QFont, QIcon
 
 from data_manager import DataManager
 from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage
 from ui_dialogs import CameraDialog
-from network_scanner import NetworkScanner, get_local_subnet
+# from network_scanner import NetworkScanner, get_local_subnet # Ще го добавим, когато имплементираме скенера
 from video_worker import VideoWorker
 from ui_widgets import VideoFrame
 
@@ -23,10 +24,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("TSA-Security")
         self.setGeometry(100, 100, 1280, 720)
 
+        # Инициализираме всичко като празно
         self.video_workers = {}
         self.active_video_widgets = {}
         self.created_pages = {}
 
+        # Създаваме САМО празната рамка
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -34,8 +37,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
 
         sidebar = QWidget()
+        sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(200)
-        sidebar.setStyleSheet("background-color: #2D2D30;")
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
         sidebar_layout.setSpacing(10)
@@ -99,6 +102,7 @@ class MainWindow(QMainWindow):
             page.add_button.clicked.connect(self.add_camera)
             page.edit_button.clicked.connect(self.edit_camera)
             page.delete_button.clicked.connect(self.delete_camera)
+            # page.scan_button.clicked.connect(self.scan_network)
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
@@ -134,34 +138,25 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
     
-    # --- МЕТОДИ ЗА НАСТРОЙКИ (ЛИПСВАЩИТЕ МЕТОДИ СА ТУК) ---
     def load_settings(self):
-        """Зарежда настройките и ги показва в интерфейса."""
         page = self.created_pages.get("settings")
         if not page: return
-
         settings_data = DataManager.load_settings()
-        
         page.theme_combo.setCurrentText("Тъмна" if settings_data.get("theme") == "dark" else "Светла")
         page.grid_combo.setCurrentText(settings_data.get("default_grid", "2x2"))
         page.path_edit.setText(settings_data.get("recording_path", ""))
 
     def save_settings(self):
-        """Взима данните от интерфейса и ги записва във файла."""
         page = self.created_pages.get("settings")
         if not page: return
-        
         new_settings = {
             "theme": "dark" if page.theme_combo.currentText() == "Тъмна" else "light",
             "default_grid": page.grid_combo.currentText(),
             "recording_path": page.path_edit.text()
         }
-        
         DataManager.save_settings(new_settings)
-        
         QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
-    # --- Други методи ---
     def start_all_streams(self):
         if self.video_workers: return
         cameras_data = DataManager.load_cameras()
@@ -193,7 +188,8 @@ class MainWindow(QMainWindow):
         page.list_widget.clear()
         cameras_data = DataManager.load_cameras()
         for cam in cameras_data:
-            item_text = f"{cam['name']} ({'Активна' if cam['is_active'] else 'Неактивна'})"
+            status = "Активна" if cam.get('is_active') else "Неактивна"
+            item_text = f"{cam['name']}\n{cam['rtsp_url']} - Статус: {status}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, cam)
             page.list_widget.addItem(item)
@@ -201,7 +197,6 @@ class MainWindow(QMainWindow):
     def refresh_recordings_view(self):
         page = self.created_pages.get("recordings")
         if not page: return
-
         all_events = DataManager.load_events()
         cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
         event_types = sorted(list(set(event.get("event_type") for event in all_events)))
@@ -243,7 +238,6 @@ class MainWindow(QMainWindow):
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
-        
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path = event_data.get("file_path")
 
@@ -262,7 +256,6 @@ class MainWindow(QMainWindow):
         if not selected_items: return
 
         event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        
         reply = QMessageBox.question(self, "Потвърждение", "Сигурни ли сте?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         
@@ -288,14 +281,12 @@ class MainWindow(QMainWindow):
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
-        
         camera_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
         
         dialog = CameraDialog(camera_data=camera_to_edit, parent=self)
         if dialog.exec():
             updated_data = dialog.get_data()
             if not updated_data["name"] or not updated_data["rtsp_url"]: return
-            
             cameras_data = DataManager.load_cameras()
             for i, cam in enumerate(cameras_data):
                 if cam.get("id") == camera_to_edit.get("id"):
@@ -309,7 +300,6 @@ class MainWindow(QMainWindow):
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
-        
         camera_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
         reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{camera_to_delete['name']}'?",

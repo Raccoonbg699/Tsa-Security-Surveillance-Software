@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 class CamerasPage(QWidget):
-    """Страница за управление на камери (вече с QListWidget за стабилност)."""
+    """Страница за управление на камери."""
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout(self)
@@ -54,6 +54,7 @@ class CamerasPage(QWidget):
         self.delete_button.setEnabled(is_selected)
 
 class LiveViewPage(QWidget):
+    """Страница за изглед на живо."""
     def __init__(self):
         super().__init__()
         
@@ -96,8 +97,8 @@ class LiveViewPage(QWidget):
         main_layout.addWidget(self.grid_container, 1)
 
 class RecordingsPage(QWidget):
-    """Страница за преглед на записи (вече с QListWidget за стабилност)."""
-    def __init__(self):
+    """Страница за преглед на записи."""
+    def __init__(self): # <-- Липсващият __init__ е тук
         super().__init__()
         
         layout = QVBoxLayout(self)
@@ -161,6 +162,8 @@ class SettingsPage(QWidget):
 
         form_layout = QFormLayout()
         form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form_layout.setSpacing(15)
 
         self.theme_combo = QComboBox()
         self.theme_combo.addItems(["Тъмна", "Светла"])
@@ -171,7 +174,8 @@ class SettingsPage(QWidget):
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
-        browse_button = QPushButton("Избери папка...")
+        browse_button = QPushButton("...")
+        browse_button.setFixedWidth(40)
         browse_button.clicked.connect(self.select_recording_path)
         path_layout.addWidget(self.path_edit, 1)
         path_layout.addWidget(browse_button)
@@ -181,6 +185,7 @@ class SettingsPage(QWidget):
         form_layout.addRow("Папка за записи:", path_layout)
         
         self.save_button = QPushButton("Запази промените")
+        self.save_button.setObjectName("AccentButton")
 
         layout.addWidget(title)
         layout.addLayout(form_layout)
@@ -188,7 +193,6 @@ class SettingsPage(QWidget):
         layout.addWidget(self.save_button, 0, Qt.AlignmentFlag.AlignRight)
 
     def select_recording_path(self):
-        """Отваря диалог за избор на папка."""
         directory = QFileDialog.getExistingDirectory(self, "Изберете папка за записи")
         if directory:
             self.path_edit.setText(directory)
