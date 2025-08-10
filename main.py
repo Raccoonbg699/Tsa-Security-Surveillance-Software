@@ -1,6 +1,12 @@
+import os
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
+
+# --- ТУК Е КЛЮЧОВАТА ПРОМЯНА ---
+# Този ред трябва да е НАЙ-ОТГОРЕ, преди да се зареди каквото и да е друго.
+# Той "казва" на OpenCV да предпочита TCP за RTSP. Това прави връзката много по-стабилна.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 from ui_login_window import LoginWindow
 from ui_main_window import MainWindow
@@ -9,7 +15,7 @@ from ui_main_window import MainWindow
 BASE_DIR = Path(__file__).parent
 
 class ApplicationController:
-    """Управлява потока на приложението (кой прозорец кога да се покаже)."""
+    """Управлява потока на приложението."""
     def __init__(self, app):
         self.app = app
         self.login_window = None
@@ -24,7 +30,6 @@ class ApplicationController:
     def show_main_window(self, user_role):
         """Показва главния прозорец след успешен вход."""
         print(f"Потребител с роля '{user_role}' влезе в системата.")
-        # Подаваме основната директория към главния прозорец
         self.main_window = MainWindow(base_dir=BASE_DIR)
         self.main_window.show()
 
@@ -33,15 +38,13 @@ def main():
     """Основна функция за стартиране на приложението."""
     app = QApplication(sys.argv)
     
-    # Зареждане на стиловете от QSS файла, използвайки пълния път
     style_file = BASE_DIR / "style.qss"
     try:
         with open(style_file, "r") as f:
             app.setStyleSheet(f.read())
     except FileNotFoundError:
-        print(f"Предупреждение: Файлът {style_file} не е намерен. Ще се използва стандартен стил.")
+        print(f"Предупреждение: Файлът {style_file} не е намерен.")
 
-    # Стартиране на приложението
     controller = ApplicationController(app)
     controller.start()
     

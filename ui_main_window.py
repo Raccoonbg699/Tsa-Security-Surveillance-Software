@@ -2,19 +2,20 @@ import uuid
 import os
 import subprocess
 import sys
+from pathlib import Path
+from datetime import datetime
+import cv2
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QStackedWidget, QSpacerItem, QSizePolicy, QListWidgetItem,
-    QMessageBox, QProgressDialog
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem
 )
-from PySide6.QtCore import Qt, Signal, QThread, QTimer, QSize
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtCore import QSize, Qt, QThread, QTimer
+from PySide6.QtGui import QIcon
 
 from data_manager import DataManager
 from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage
 from ui_dialogs import CameraDialog
-# from network_scanner import NetworkScanner, get_local_subnet # Ще го добавим, когато имплементираме скенера
-from video_worker import VideoWorker
+from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
 
 class MainWindow(QMainWindow):
@@ -24,12 +25,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("TSA-Security")
         self.setGeometry(100, 100, 1280, 720)
 
-        # Инициализираме всичко като празно
         self.video_workers = {}
         self.active_video_widgets = {}
+        self.recording_worker = None
         self.created_pages = {}
 
-        # Създаваме САМО празната рамка
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -87,9 +87,12 @@ class MainWindow(QMainWindow):
         if page_name not in self.created_pages:
             page = LiveViewPage()
             page.page_name = page_name
+            page.snapshot_button.clicked.connect(self.take_snapshot)
+            page.record_button.toggled.connect(self.toggle_manual_recording)
             page.grid_1x1_button.clicked.connect(self.update_grid_layout)
             page.grid_2x2_button.clicked.connect(self.update_grid_layout)
             page.grid_3x3_button.clicked.connect(self.update_grid_layout)
+            page.camera_selector.currentIndexChanged.connect(self.update_grid_layout)
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
@@ -102,7 +105,6 @@ class MainWindow(QMainWindow):
             page.add_button.clicked.connect(self.add_camera)
             page.edit_button.clicked.connect(self.edit_camera)
             page.delete_button.clicked.connect(self.delete_camera)
-            # page.scan_button.clicked.connect(self.scan_network)
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
@@ -159,24 +161,64 @@ class MainWindow(QMainWindow):
         
     def start_all_streams(self):
         if self.video_workers: return
+        page = self.created_pages.get("live_view")
+        if not page: return
+
+        page.camera_selector.clear()
+        
         cameras_data = DataManager.load_cameras()
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
+        
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
+            page.camera_selector.addItem(cam_data["name"], cam_id)
             frame_widget = VideoFrame(camera_name=cam_data.get("name"), camera_id=cam_id)
             frame_widget.double_clicked.connect(self.toggle_fullscreen_camera)
-            worker = VideoWorker(rtsp_url=cam_data.get("rtsp_url"))
-            worker.ImageUpdate.connect(frame_widget.update_frame)
-            worker.StreamStatus.connect(frame_widget.update_status)
-            worker.start()
-            self.video_workers[cam_id] = worker
+            
+            self.start_single_worker(cam_data, frame_widget)
             self.active_video_widgets[cam_id] = frame_widget
         self.update_grid_layout()
 
+    def start_single_worker(self, cam_data, frame_widget):
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        recording_path.mkdir(parents=True, exist_ok=True)
+        
+        cam_id = cam_data.get("id")
+        worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
+        worker.ImageUpdate.connect(frame_widget.update_frame)
+        worker.StreamStatus.connect(frame_widget.update_status)
+        worker.MotionDetected.connect(self.on_motion_detected)
+        worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
+        
+        worker.start()
+        self.video_workers[cam_id] = worker
+
+    def handle_worker_finished(self, cam_id):
+        print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
+        if cam_id in self.video_workers:
+            self.video_workers.pop(cam_id, None)
+            
+            cameras_data = DataManager.load_cameras()
+            cam_data = next((c for c in cameras_data if c.get("id") == cam_id), None)
+            frame_widget = self.active_video_widgets.get(cam_id)
+            
+            if cam_data and frame_widget:
+                QTimer.singleShot(5000, lambda: self.start_single_worker(cam_data, frame_widget))
+
     def stop_all_streams(self):
+        if self.recording_worker:
+            worker, _ = self.get_camera_to_control()
+            if worker:
+                worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+            self.recording_worker.stop()
+            self.recording_worker.wait()
+            self.recording_worker = None
+
         if not self.video_workers: return
         for worker in self.video_workers.values():
             worker.stop()
+            worker.wait()
         self.video_workers.clear()
         for widget in self.active_video_widgets.values():
             widget.deleteLater()
@@ -337,14 +379,18 @@ class MainWindow(QMainWindow):
 
         all_widgets = list(self.active_video_widgets.values())
         widgets_to_show = []
-        cols = 1
-
+        
         if page.grid_1x1_button.isChecked():
-            cols = 1; widgets_to_show = all_widgets[:1]
-        elif page.grid_2x2_button.isChecked():
-            cols = 2; widgets_to_show = all_widgets[:4]
-        elif page.grid_3x3_button.isChecked():
-            cols = 3; widgets_to_show = all_widgets[:9]
+            page.camera_selector.show()
+            selected_cam_id = page.camera_selector.currentData()
+            if selected_cam_id and selected_cam_id in self.active_video_widgets:
+                widgets_to_show.append(self.active_video_widgets[selected_cam_id])
+            cols = 1
+        else:
+            page.camera_selector.hide()
+            cols = 2 if page.grid_2x2_button.isChecked() else 3
+            limit = 4 if page.grid_2x2_button.isChecked() else 9
+            widgets_to_show = all_widgets[:limit]
 
         if not widgets_to_show: return
 
@@ -372,5 +418,110 @@ class MainWindow(QMainWindow):
                 else:
                     widget.hide()
                     
+    def on_motion_detected(self, cam_id):
+        widget = self.active_video_widgets.get(cam_id)
+        if widget:
+            widget.set_motion_state(True)
+            
+    def get_camera_to_control(self):
+        page = self.created_pages.get("live_view")
+        if not page or not self.active_video_widgets:
+            return None, None
+        cam_id = None
+        if page.grid_1x1_button.isChecked():
+            cam_id = page.camera_selector.currentData()
+        else:
+            if self.active_video_widgets:
+                first_widget = page.grid_layout.itemAt(0).widget()
+                if first_widget:
+                    cam_id = first_widget.camera_id
+        
+        if cam_id:
+            return self.video_workers.get(cam_id), self.active_video_widgets.get(cam_id)
+        return None, None
+            
+    def take_snapshot(self):
+        worker, _ = self.get_camera_to_control()
+        if worker:
+            frame = worker.get_latest_frame()
+            if frame is not None:
+                settings = DataManager.load_settings()
+                recording_path = Path(settings.get("recording_path"))
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = recording_path / f"snap_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.jpg"
+                cv2.imwrite(str(filename), frame)
+                print(f"Снимка запазена: {filename}")
+                self.add_event(worker.camera_data['id'], "Снимка", str(filename))
+
+    def toggle_manual_recording(self, is_recording):
+        page = self.created_pages.get("live_view")
+        if not page: return
+
+        worker, widget = self.get_camera_to_control()
+        if not worker or not widget: 
+            page.record_button.setChecked(False)
+            return
+
+        if is_recording:
+            if self.recording_worker: return
+            settings = DataManager.load_settings()
+            recording_path = Path(settings.get("recording_path"))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
+            
+            frame = worker.get_latest_frame()
+            if frame is None:
+                page.record_button.setChecked(False)
+                return
+            height, width, _ = frame.shape
+            
+            # --- ТУК Е ФИНАЛНАТА ПОПРАВКА ---
+            # Задаваме твърда, стандартна стойност за FPS
+            fps = 20.0 
+
+            self.recording_worker = RecordingWorker(str(filename), width, height, fps)
+            worker.FrameForRecording.connect(self.handle_frame_for_recording)
+            self.recording_worker.start()
+            
+            widget.set_recording_state(True)
+            self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
+            print(f"Ръчен запис стартиран: {filename}")
+        else:
+            if self.recording_worker:
+                # Използваме try-except, за да избегнем срив, ако връзката вече е прекъсната
+                try:
+                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                except (TypeError, RuntimeError):
+                    pass
+                self.recording_worker.stop()
+                self.recording_worker.wait()
+                self.recording_worker = None
+                if widget: widget.set_recording_state(False)
+                print("Ръчен запис спрян.")
+
+    def handle_frame_for_recording(self, frame):
+        if self.recording_worker and self.recording_worker.isRunning():
+            self.recording_worker.add_frame(frame)
+
+    def add_event(self, camera_id, event_type, file_path):
+        cameras = DataManager.load_cameras()
+        camera_name = "Неизвестна камера"
+        for cam in cameras:
+            if cam.get("id") == camera_id:
+                camera_name = cam.get("name")
+                break
+        
+        new_event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "camera_name": camera_name,
+            "event_type": event_type,
+            "file_path": file_path
+        }
+        
+        all_events = DataManager.load_events()
+        all_events.insert(0, new_event)
+        DataManager.save_events(all_events)
+
     def scan_network(self):
         pass

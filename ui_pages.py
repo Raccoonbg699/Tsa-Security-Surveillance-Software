@@ -61,14 +61,18 @@ class LiveViewPage(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         
-        controls_layout = QHBoxLayout()
-        controls_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
         
         title = QLabel("Изглед на живо")
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
+
+        self.camera_selector = QComboBox()
+        self.camera_selector.setMinimumWidth(200)
+        self.camera_selector.hide()
 
         self.grid_1x1_button = QPushButton("1x1")
         self.grid_2x2_button = QPushButton("2x2")
@@ -83,22 +87,32 @@ class LiveViewPage(QWidget):
         
         self.grid_2x2_button.setChecked(True)
 
-        controls_layout.addWidget(title)
-        controls_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-        controls_layout.addWidget(self.grid_1x1_button)
-        controls_layout.addWidget(self.grid_2x2_button)
-        controls_layout.addWidget(self.grid_3x3_button)
+        top_layout.addWidget(title)
+        top_layout.addWidget(self.camera_selector)
+        top_layout.addStretch()
+        top_layout.addWidget(self.grid_1x1_button)
+        top_layout.addWidget(self.grid_2x2_button)
+        top_layout.addWidget(self.grid_3x3_button)
         
         self.grid_container = QWidget()
         self.grid_layout = QGridLayout(self.grid_container)
         self.grid_layout.setSpacing(5)
 
-        main_layout.addLayout(controls_layout)
+        bottom_controls = QHBoxLayout()
+        self.snapshot_button = QPushButton("Снимка")
+        self.record_button = QPushButton("Запис")
+        self.record_button.setCheckable(True)
+        bottom_controls.addStretch()
+        bottom_controls.addWidget(self.snapshot_button)
+        bottom_controls.addWidget(self.record_button)
+        
+        main_layout.addLayout(top_layout)
         main_layout.addWidget(self.grid_container, 1)
+        main_layout.addLayout(bottom_controls)
 
 class RecordingsPage(QWidget):
     """Страница за преглед на записи."""
-    def __init__(self): # <-- Липсващият __init__ е тук
+    def __init__(self):
         super().__init__()
         
         layout = QVBoxLayout(self)

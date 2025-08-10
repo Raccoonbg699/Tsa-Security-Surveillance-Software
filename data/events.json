@@ -1,16 +1,9 @@
 [
     {
-        "event_id": "evt-002",
-        "timestamp": "2025-08-09 23:01:10",
-        "camera_name": "Камера на врата",
+        "event_id": "9dd8a502-790d-403f-9ce4-a99efbd62b9e",
+        "timestamp": "2025-08-11 01:28:43",
+        "camera_name": "Камера @ 192.168.1.14",
         "event_type": "Ръчен запис",
-        "file_path": "C:/path/to/your/videos/rec_20250809_230110.mp4"
-    },
-    {
-        "event_id": "evt-003",
-        "timestamp": "2025-08-10 00:05:00",
-        "camera_name": "Камера @ 192.168.1.13",
-        "event_type": "Снимка",
-        "file_path": "C:/path/to/your/videos/snap_20250810_000500.jpg"
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.14_20250811_012843.mp4"
     }
 ]
