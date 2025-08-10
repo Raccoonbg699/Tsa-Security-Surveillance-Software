@@ -13,16 +13,17 @@ from PySide6.QtCore import QSize, Qt, QThread, QTimer
 from PySide6.QtGui import QIcon
 
 from data_manager import DataManager
-from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage
-from ui_dialogs import CameraDialog
+from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage, UsersPage
+from ui_dialogs import CameraDialog, UserDialog
 from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
-from network_scanner import NetworkScanner, get_local_subnet
+# from network_scanner import NetworkScanner, get_local_subnet
 
 class MainWindow(QMainWindow):
-    def __init__(self, base_dir):
+    def __init__(self, base_dir, user_role):
         super().__init__()
         self.base_dir = base_dir
+        self.user_role = user_role
         self.setWindowTitle("TSA-Security")
         self.setGeometry(100, 100, 1280, 720)
 
@@ -30,8 +31,6 @@ class MainWindow(QMainWindow):
         self.active_video_widgets = {}
         self.recording_worker = None
         self.created_pages = {}
-        self.scanner_thread = None
-        self.scanner = None
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -53,22 +52,44 @@ class MainWindow(QMainWindow):
         btn_live_view = self.create_nav_button("Изглед на живо", "icons/video-camera.png")
         btn_cameras = self.create_nav_button("Камери", "icons/camera.png")
         btn_recordings = self.create_nav_button("Записи", "icons/archive.png")
+        self.btn_users = self.create_nav_button("Потребители", "icons/user.png")
         btn_settings = self.create_nav_button("Настройки", "icons/gear.png")
 
         sidebar_layout.addWidget(btn_live_view)
         sidebar_layout.addWidget(btn_cameras)
         sidebar_layout.addWidget(btn_recordings)
         sidebar_layout.addStretch()
+        sidebar_layout.addWidget(self.btn_users)
         sidebar_layout.addWidget(btn_settings)
 
         btn_live_view.clicked.connect(self.show_live_view_page)
         btn_cameras.clicked.connect(self.show_cameras_page)
         btn_recordings.clicked.connect(self.show_recordings_page)
+        self.btn_users.clicked.connect(self.show_users_page)
         btn_settings.clicked.connect(self.show_settings_page)
+        
+        self.apply_role_permissions()
         
         btn_live_view.setChecked(True)
         self.show_live_view_page()
     
+    def create_nav_button(self, text, relative_icon_path):
+        button = QPushButton(text)
+        button.setObjectName("NavButton")
+        button.setCheckable(True)
+        button.setAutoExclusive(True)
+        full_icon_path = self.base_dir / relative_icon_path
+        if full_icon_path.exists():
+            button.setIcon(QIcon(str(full_icon_path)))
+        else:
+            print(f"Предупреждение: Иконата не е намерена: {full_icon_path}")
+        button.setIconSize(QSize(24, 24))
+        return button
+    
+    def apply_role_permissions(self):
+        is_admin = self.user_role == "Administrator"
+        self.btn_users.setVisible(is_admin)
+
     def switch_to_page(self, page_name):
         current_widget = self.pages.currentWidget()
         if hasattr(current_widget, 'page_name') and current_widget.page_name == "live_view":
@@ -84,6 +105,8 @@ class MainWindow(QMainWindow):
             self.refresh_cameras_view()
         elif page_name == "settings":
             self.load_settings()
+        elif page_name == "users":
+            self.refresh_users_view()
 
     def show_live_view_page(self):
         page_name = "live_view"
@@ -105,10 +128,18 @@ class MainWindow(QMainWindow):
         if page_name not in self.created_pages:
             page = CamerasPage()
             page.page_name = page_name
-            page.add_button.clicked.connect(self.show_add_camera_dialog) # Промяна тук
+            page.add_button.clicked.connect(self.add_camera)
             page.edit_button.clicked.connect(self.edit_camera)
             page.delete_button.clicked.connect(self.delete_camera)
-            page.scan_button.clicked.connect(self.scan_network)
+            # page.scan_button.clicked.connect(self.scan_network)
+
+            if self.user_role != "Administrator":
+                page.add_button.hide()
+                page.edit_button.hide()
+                page.delete_button.hide()
+                page.scan_button.hide()
+                page.search_input.hide()
+
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
@@ -131,6 +162,9 @@ class MainWindow(QMainWindow):
         page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
         page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
         
+        if self.user_role != "Administrator":
+            page.delete_button.hide()
+
         self.refresh_recordings_view()
         page.is_setup = True
 
@@ -142,8 +176,25 @@ class MainWindow(QMainWindow):
             page.save_button.clicked.connect(self.save_settings)
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
+        
+        self.created_pages[page_name].setEnabled(self.user_role == "Administrator")
         self.switch_to_page(page_name)
-    
+        
+    def show_users_page(self):
+        page_name = "users"
+        if self.user_role != "Administrator": return
+
+        if page_name not in self.created_pages:
+            page = UsersPage()
+            page.page_name = page_name
+            page.add_button.clicked.connect(self.add_user)
+            page.edit_button.clicked.connect(self.edit_user)
+            page.delete_button.clicked.connect(self.delete_user)
+            self.created_pages[page_name] = page
+            self.pages.addWidget(page)
+        
+        self.switch_to_page(page_name)
+
     def load_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
@@ -170,6 +221,10 @@ class MainWindow(QMainWindow):
 
         page.camera_selector.clear()
         
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        recording_path.mkdir(parents=True, exist_ok=True)
+        
         cameras_data = DataManager.load_cameras()
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         
@@ -186,7 +241,6 @@ class MainWindow(QMainWindow):
     def start_single_worker(self, cam_data, frame_widget):
         settings = DataManager.load_settings()
         recording_path = Path(settings.get("recording_path"))
-        recording_path.mkdir(parents=True, exist_ok=True)
         
         cam_id = cam_data.get("id")
         worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
@@ -213,8 +267,11 @@ class MainWindow(QMainWindow):
     def stop_all_streams(self):
         if self.recording_worker:
             worker, _ = self.get_camera_to_control()
-            if worker and worker.signalsAreConnected:
-                worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+            if worker:
+                try:
+                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                except (TypeError, RuntimeError):
+                    pass
             self.recording_worker.stop()
             self.recording_worker.wait()
             self.recording_worker = None
@@ -311,25 +368,16 @@ class MainWindow(QMainWindow):
             DataManager.save_events(updated_events)
             self.refresh_recordings_view()
 
-    # --- ТУК Е КОРЕКЦИЯТА ---
-    def show_add_camera_dialog(self):
-        """Отваря диалога за ръчно добавяне на камера."""
+    def add_camera(self):
         dialog = CameraDialog(parent=self)
         if dialog.exec():
             new_data = dialog.get_data()
-            self.add_camera(new_data) # Извикваме общата функция
-
-    def add_camera(self, camera_data):
-        """Обща функция, която добавя камера (от диалог или скенер)."""
-        if not camera_data["name"] or not camera_data["rtsp_url"]:
-            QMessageBox.warning(self, "Грешка", "Името и RTSP адресът са задължителни.")
-            return
-        
-        camera_data["id"] = str(uuid.uuid4())
-        cameras_data = DataManager.load_cameras()
-        cameras_data.append(camera_data)
-        DataManager.save_cameras(cameras_data)
-        self.refresh_cameras_view()
+            if not new_data["name"] or not new_data["rtsp_url"]: return
+            new_data["id"] = str(uuid.uuid4())
+            cameras_data = DataManager.load_cameras()
+            cameras_data.append(new_data)
+            DataManager.save_cameras(cameras_data)
+            self.refresh_cameras_view()
 
     def edit_camera(self):
         page = self.created_pages.get("cameras")
@@ -365,18 +413,72 @@ class MainWindow(QMainWindow):
             DataManager.save_cameras(updated_cameras)
             self.refresh_cameras_view()
 
-    def create_nav_button(self, text, relative_icon_path):
-        button = QPushButton(text)
-        button.setObjectName("NavButton")
-        button.setCheckable(True)
-        button.setAutoExclusive(True)
-        full_icon_path = self.base_dir / relative_icon_path
-        if full_icon_path.exists():
-            button.setIcon(QIcon(str(full_icon_path)))
-        else:
-            print(f"Предупреждение: Иконата не е намерена: {full_icon_path}")
-        button.setIconSize(QSize(24, 24))
-        return button
+    def refresh_users_view(self):
+        page = self.created_pages.get("users")
+        if not page: return
+        page.list_widget.clear()
+        users_data = DataManager.load_users()
+        for user in users_data:
+            item_text = f"{user['username']} ({user['role']})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, user)
+            page.list_widget.addItem(item)
+    
+    def add_user(self):
+        dialog = UserDialog(parent=self)
+        if dialog.exec():
+            new_data = dialog.get_data()
+            if not new_data["username"] or not new_data["password"]:
+                QMessageBox.warning(self, "Грешка", "Полетата не могат да бъдат празни.")
+                return
+            users = DataManager.load_users()
+            if any(u['username'] == new_data['username'] for u in users):
+                QMessageBox.warning(self, "Грешка", f"Потребител с име '{new_data['username']}' вече съществува.")
+                return
+            users.append(new_data)
+            DataManager.save_users(users)
+            self.refresh_users_view()
+
+    def edit_user(self):
+        page = self.created_pages.get("users")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        user_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        
+        dialog = UserDialog(user_data=user_to_edit, parent=self)
+        if dialog.exec():
+            updated_data = dialog.get_data()
+            if not updated_data["password"]:
+                QMessageBox.warning(self, "Грешка", "Паролата не може да бъде празна.")
+                return
+            users = DataManager.load_users()
+            for i, u in enumerate(users):
+                if u['username'] == user_to_edit['username']:
+                    users[i] = updated_data
+                    break
+            DataManager.save_users(users)
+            self.refresh_users_view()
+
+    def delete_user(self):
+        page = self.created_pages.get("users")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        user_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        
+        if user_to_delete['username'] == 'admin':
+            QMessageBox.warning(self, "Грешка", "Администраторският акаунт не може да бъде изтрит.")
+            return
+
+        reply = QMessageBox.question(self, "Потвърждение", f"Сигурни ли сте, че искате да изтриете '{user_to_delete['username']}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            users = DataManager.load_users()
+            users = [u for u in users if u['username'] != user_to_delete['username']]
+            DataManager.save_users(users)
+            self.refresh_users_view()
 
     def closeEvent(self, event):
         self.stop_all_streams()
@@ -533,50 +635,5 @@ class MainWindow(QMainWindow):
         all_events.insert(0, new_event)
         DataManager.save_events(all_events)
     
-    def scan_network(self):
-        subnet = get_local_subnet()
-        if not subnet:
-            QMessageBox.critical(self, "Грешка", "Не може да бъде определена локалната мрежа.")
-            return
-
-        self.progress_dialog = QProgressDialog("Сканиране на мрежата...", "Прекрати", 0, 100, self)
-        self.progress_dialog.setWindowTitle("Сканиране")
-        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        
-        self.scanner_thread = QThread()
-        self.scanner = NetworkScanner(subnet)
-        self.scanner.moveToThread(self.scanner_thread)
-
-        self.progress_dialog.canceled.connect(self.scanner.cancel)
-        self.scanner.scan_progress.connect(self.progress_dialog.setValue)
-        self.scanner.camera_found.connect(self.handle_found_camera)
-        self.scanner.scan_finished.connect(self.on_scan_finished)
-
-        self.scanner_thread.started.connect(self.scanner.run)
-        self.created_pages["cameras"].scan_button.setEnabled(False)
-        self.scanner_thread.start()
-        self.progress_dialog.show()
-
-    def handle_found_camera(self, ip_address):
-        cameras_data = DataManager.load_cameras()
-        if any(cam.get('rtsp_url') and ip_address in cam.get('rtsp_url') for cam in cameras_data):
-            return
-
-        reply = QMessageBox.question(self, "Намерена камера",
-                                     f"Намерена е камера на адрес {ip_address}.\nДа я добавя ли?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            new_data = {
-                "name": f"Камера @ {ip_address}",
-                "rtsp_url": f"rtsp://{ip_address}:554/",
-                "is_active": True
-            }
-            self.add_camera(new_data)
-
-    def on_scan_finished(self, message):
-        print(message)
-        self.progress_dialog.close()
-        self.created_pages["cameras"].scan_button.setEnabled(True)
-        if self.scanner_thread:
-            self.scanner_thread.quit()
-            self.scanner_thread.wait()
+    # def scan_network(self):
+    #     pass

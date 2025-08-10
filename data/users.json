@@ -2,6 +2,11 @@
     {
         "username": "admin",
         "password": "password",
-        "role": "administrator"
+        "role": "Administrator"
+    },
+    {
+        "username": "user",
+        "password": "user",
+        "role": "Standard"
     }
 ]

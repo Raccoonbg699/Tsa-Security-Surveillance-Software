@@ -210,3 +210,42 @@ class SettingsPage(QWidget):
         directory = QFileDialog.getExistingDirectory(self, "Изберете папка за записи")
         if directory:
             self.path_edit.setText(directory)
+
+class UsersPage(QWidget):
+    """Страница за управление на потребители."""
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        title = QLabel("Управление на потребители")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+
+        buttons_layout = QHBoxLayout()
+        self.add_button = QPushButton("Добави потребител")
+        self.edit_button = QPushButton("Редактирай")
+        self.delete_button = QPushButton("Изтрий")
+        self.edit_button.setEnabled(False)
+        self.delete_button.setEnabled(False)
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(self.add_button)
+        buttons_layout.addWidget(self.edit_button)
+        buttons_layout.addWidget(self.delete_button)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("QListWidget::item { padding: 8px; }")
+        self.list_widget.setAlternatingRowColors(True)
+        self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
+
+        layout.addWidget(title)
+        layout.addLayout(buttons_layout)
+        layout.addWidget(self.list_widget)
+
+    def on_selection_changed(self):
+        is_selected = bool(self.list_widget.selectedItems())
+        self.edit_button.setEnabled(is_selected)
+        self.delete_button.setEnabled(is_selected)

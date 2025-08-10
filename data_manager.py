@@ -15,6 +15,14 @@ class DataManager:
             return json.load(f)
 
     @staticmethod
+    def save_users(users_data):
+        """Записва списъка с потребители в users.json."""
+        DATA_DIR.mkdir(exist_ok=True)
+        users_file = DATA_DIR / "users.json"
+        with open(users_file, "w", encoding="utf-8") as f:
+            json.dump(users_data, f, indent=4, ensure_ascii=False)
+
+    @staticmethod
     def load_cameras():
         DATA_DIR.mkdir(exist_ok=True)
         cameras_file = DATA_DIR / "cameras.json"
@@ -58,7 +66,6 @@ class DataManager:
 
     @staticmethod
     def save_events(events_data):
-        """Записва списъка със събития в events.json."""
         DATA_DIR.mkdir(exist_ok=True)
         events_file = DATA_DIR / "events.json"
         with open(events_file, "w", encoding="utf-8") as f:
@@ -66,12 +73,10 @@ class DataManager:
             
     @staticmethod
     def load_settings():
-        """Зарежда настройките от settings.json."""
         DATA_DIR.mkdir(exist_ok=True)
         settings_file = DATA_DIR / "settings.json"
 
         if not settings_file.exists():
-            # Връщаме настройки по подразбиране, ако файлът липсва
             return {
                 "theme": "dark",
                 "default_grid": "2x2",
@@ -83,7 +88,6 @@ class DataManager:
                 return json.load(f)
         except json.JSONDecodeError:
             print("Предупреждение: Файлът 'settings.json' е повреден. Зареждат се настройки по подразбиране.")
-            # При грешка, отново връщаме стандартни настройки
             return {
                 "theme": "dark",
                 "default_grid": "2x2",
@@ -92,7 +96,6 @@ class DataManager:
 
     @staticmethod
     def save_settings(settings_data):
-        """Записва настройките в settings.json."""
         DATA_DIR.mkdir(exist_ok=True)
         settings_file = DATA_DIR / "settings.json"
         with open(settings_file, "w", encoding="utf-8") as f:
