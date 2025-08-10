@@ -17,6 +17,7 @@ from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage
 from ui_dialogs import CameraDialog
 from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
+from network_scanner import NetworkScanner, get_local_subnet
 
 class MainWindow(QMainWindow):
     def __init__(self, base_dir):
@@ -29,6 +30,8 @@ class MainWindow(QMainWindow):
         self.active_video_widgets = {}
         self.recording_worker = None
         self.created_pages = {}
+        self.scanner_thread = None
+        self.scanner = None
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -102,9 +105,10 @@ class MainWindow(QMainWindow):
         if page_name not in self.created_pages:
             page = CamerasPage()
             page.page_name = page_name
-            page.add_button.clicked.connect(self.add_camera)
+            page.add_button.clicked.connect(self.show_add_camera_dialog) # Промяна тук
             page.edit_button.clicked.connect(self.edit_camera)
             page.delete_button.clicked.connect(self.delete_camera)
+            page.scan_button.clicked.connect(self.scan_network)
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
@@ -209,7 +213,7 @@ class MainWindow(QMainWindow):
     def stop_all_streams(self):
         if self.recording_worker:
             worker, _ = self.get_camera_to_control()
-            if worker:
+            if worker and worker.signalsAreConnected:
                 worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
             self.recording_worker.stop()
             self.recording_worker.wait()
@@ -249,7 +253,7 @@ class MainWindow(QMainWindow):
         page.camera_filter.addItem("Всички камери")
         page.event_type_filter.addItem("Всички типове")
         page.camera_filter.addItems(cameras)
-        page.event_type_filter.addItems(event_types)
+        page.camera_filter.addItems(event_types)
         page.camera_filter.blockSignals(False)
         page.event_type_filter.blockSignals(False)
         self.apply_event_filters()
@@ -307,16 +311,25 @@ class MainWindow(QMainWindow):
             DataManager.save_events(updated_events)
             self.refresh_recordings_view()
 
-    def add_camera(self):
+    # --- ТУК Е КОРЕКЦИЯТА ---
+    def show_add_camera_dialog(self):
+        """Отваря диалога за ръчно добавяне на камера."""
         dialog = CameraDialog(parent=self)
         if dialog.exec():
             new_data = dialog.get_data()
-            if not new_data["name"] or not new_data["rtsp_url"]: return
-            new_data["id"] = str(uuid.uuid4())
-            cameras_data = DataManager.load_cameras()
-            cameras_data.append(new_data)
-            DataManager.save_cameras(cameras_data)
-            self.refresh_cameras_view()
+            self.add_camera(new_data) # Извикваме общата функция
+
+    def add_camera(self, camera_data):
+        """Обща функция, която добавя камера (от диалог или скенер)."""
+        if not camera_data["name"] or not camera_data["rtsp_url"]:
+            QMessageBox.warning(self, "Грешка", "Името и RTSP адресът са задължителни.")
+            return
+        
+        camera_data["id"] = str(uuid.uuid4())
+        cameras_data = DataManager.load_cameras()
+        cameras_data.append(camera_data)
+        DataManager.save_cameras(cameras_data)
+        self.refresh_cameras_view()
 
     def edit_camera(self):
         page = self.created_pages.get("cameras")
@@ -475,8 +488,6 @@ class MainWindow(QMainWindow):
                 return
             height, width, _ = frame.shape
             
-            # --- ТУК Е ФИНАЛНАТА ПОПРАВКА ---
-            # Задаваме твърда, стандартна стойност за FPS
             fps = 20.0 
 
             self.recording_worker = RecordingWorker(str(filename), width, height, fps)
@@ -488,7 +499,6 @@ class MainWindow(QMainWindow):
             print(f"Ръчен запис стартиран: {filename}")
         else:
             if self.recording_worker:
-                # Използваме try-except, за да избегнем срив, ако връзката вече е прекъсната
                 try:
                     worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
                 except (TypeError, RuntimeError):
@@ -522,6 +532,51 @@ class MainWindow(QMainWindow):
         all_events = DataManager.load_events()
         all_events.insert(0, new_event)
         DataManager.save_events(all_events)
-
+    
     def scan_network(self):
-        pass
+        subnet = get_local_subnet()
+        if not subnet:
+            QMessageBox.critical(self, "Грешка", "Не може да бъде определена локалната мрежа.")
+            return
+
+        self.progress_dialog = QProgressDialog("Сканиране на мрежата...", "Прекрати", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Сканиране")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        
+        self.scanner_thread = QThread()
+        self.scanner = NetworkScanner(subnet)
+        self.scanner.moveToThread(self.scanner_thread)
+
+        self.progress_dialog.canceled.connect(self.scanner.cancel)
+        self.scanner.scan_progress.connect(self.progress_dialog.setValue)
+        self.scanner.camera_found.connect(self.handle_found_camera)
+        self.scanner.scan_finished.connect(self.on_scan_finished)
+
+        self.scanner_thread.started.connect(self.scanner.run)
+        self.created_pages["cameras"].scan_button.setEnabled(False)
+        self.scanner_thread.start()
+        self.progress_dialog.show()
+
+    def handle_found_camera(self, ip_address):
+        cameras_data = DataManager.load_cameras()
+        if any(cam.get('rtsp_url') and ip_address in cam.get('rtsp_url') for cam in cameras_data):
+            return
+
+        reply = QMessageBox.question(self, "Намерена камера",
+                                     f"Намерена е камера на адрес {ip_address}.\nДа я добавя ли?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            new_data = {
+                "name": f"Камера @ {ip_address}",
+                "rtsp_url": f"rtsp://{ip_address}:554/",
+                "is_active": True
+            }
+            self.add_camera(new_data)
+
+    def on_scan_finished(self, message):
+        print(message)
+        self.progress_dialog.close()
+        self.created_pages["cameras"].scan_button.setEnabled(True)
+        if self.scanner_thread:
+            self.scanner_thread.quit()
+            self.scanner_thread.wait()
