@@ -19,18 +19,8 @@
 
 ## 🚀 Първи стъпки
 
-1.  **Клонирайте хранилището**:
-    ```bash
-    git clone [https://github.com/your-username/tsa-security-redesign1.git](https://github.com/your-username/tsa-security-redesign1.git)
-    ```
-2.  **Инсталирайте зависимостите**:
-    ```bash
-    pip install PySide6 opencv-python onvif-zeep
-    ```
-3.  **Стартирайте приложението**:
-    ```bash
-    python main.py
-    ```
+1.  **Клонирайте или изтеглете хранилището**: Уверете се, че всички файлове са в една папка.
+2.  **Стартирайте приложението**: Просто стартирайте файла **`start.bat`** с двойно кликване. Скриптът автоматично ще провери и инсталира всички необходими библиотеки, след което ще стартира приложението.
 
 ## 💻 Употреба
 
@@ -59,7 +49,7 @@
 ### Стъпка 2: На отдалеченото устройство (напр. лаптоп вкъщи)
 
 1.  **Инсталирайте Tailscale** и влезте със **същия акаунт**.
-2.  **Инсталирайте TSA-Security** (копирайте папката с програмата и инсталирайте зависимостите).
+2.  **Инсталирайте TSA-Security** (копирайте папката с програмата и стартирайте `start.bat`).
 
 ### Стъпка 3: Свързване
 
@@ -95,18 +85,8 @@
 
 ## 🚀 Getting Started
 
-1.  **Clone the repository**:
-    ```bash
-    git clone [https://github.com/your-username/tsa-security-redesign1.git](https://github.com/your-username/tsa-security-redesign1.git)
-    ```
-2.  **Install the dependencies**:
-    ```bash
-    pip install PySide6 opencv-python onvif-zeep
-    ```
-3.  **Run the application**:
-    ```bash
-    python main.py
-    ```
+1.  **Clone or download the repository**: Ensure all files are in the same folder.
+2.  **Run the application**: Simply double-click and run the **`start.bat`** file. The script will automatically check for and install any required libraries, and then launch the application.
 
 ## 💻 Usage
 
@@ -135,7 +115,7 @@ This functionality turns the computer running the application (e.g., in your off
 ### Step 2: On the Remote Device (e.g., your laptop at home)
 
 1.  **Install Tailscale** and log in with the **same account**.
-2.  **Install TSA-Security** (copy the program folder and install the dependencies).
+2.  **Install TSA-Security** (copy the program folder and run `start.bat`).
 
 ### Step 3: Connect
 
