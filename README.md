@@ -1,3 +1,10 @@
+
+
+<img width="2048" height="786" alt="Gemini_Generated_Image_qdxpewqdxpewqdxp" src="https://github.com/user-attachments/assets/77af471c-8863-4d02-af12-b1faef0658d1" />
+
+
+
+
 # Tsa-Security - Система за видеонаблюдение
 
 [English Version](#tsa-security---video-surveillance-system)
