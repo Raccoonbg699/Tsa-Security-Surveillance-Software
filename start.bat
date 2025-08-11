@@ -1,51 +1,67 @@
 @echo off
 setlocal
 
-:: --- Главният Python скрипт ---
-set PYTHON_SCRIPT=main.py
+echo ===============================================================
+echo  TSA-Security Startup Script
+echo  (No requirements.txt needed)
+echo ===============================================================
+echo.
 
-:: --- Списък с необходимите библиотеки ---
-set "LIBRARIES=PySide6 opencv-python onvif-zeep PySide6-Addons"
+REM --- Търсене на Python ---
+echo Searching for Python installation...
+for /f "delims=" %%p in ('where python.exe') do (
+    set "PYTHON_PATH=%%p"
+    goto :found_python
+)
 
-:: Проверка дали Python е инсталиран и достъпен
-python --version >nul 2>nul
-if errorlevel 1 (
+echo.
+echo ERROR: Python installation not found in your system's PATH.
+echo Please install Python from python.org and ensure it is added to the PATH.
+pause
+exit /b 1
+
+:found_python
+echo Found Python at: %PYTHON_PATH%
+echo.
+
+REM --- Инсталиране на зависимости директно ---
+echo Checking and installing required libraries...
+echo.
+
+echo Installing/Verifying PySide6...
+"%PYTHON_PATH%" -m pip install PySide6 >nul
+if %errorlevel% neq 0 (
     echo.
-    echo =================================================================
-    echo  ERROR: Python not found.
-    echo  Please make sure Python is installed and added to your system's PATH.
-    echo =================================================================
-    echo.
+    echo ERROR: Failed to install PySide6.
+    echo Please check your internet connection and try again.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo Checking for required Python libraries...
 echo.
-
-:check_libs
-for %%L in (%LIBRARIES%) do (
-    python -c "import %%L" >nul 2>nul
-    if errorlevel 1 (
-        echo Library %%L is missing. Installing...
-        pip install %%L
-        if errorlevel 1 (
-            echo.
-            echo =================================================================
-            echo  ERROR: Failed to install %%L.
-            echo  Please try to install it manually with 'pip install %%L'
-            echo =================================================================
-            echo.
-            pause
-            exit /b
-        )
-    )
+echo Installing/Verifying OpenCV...
+"%PYTHON_PATH%" -m pip install opencv-python >nul
+if %errorlevel% neq 0 (
+    echo.
+    echo ERROR: Failed to install opencv-python.
+    echo Please check your internet connection and try again.
+    pause
+    exit /b 1
 )
 
-echo All libraries are installed. Starting the application...
+echo.
+echo All libraries are ready.
 echo.
 
-:: --- Стартираме Python скрипта без конзолен прозорец ---
-start "" pythonw "%PYTHON_SCRIPT%"
+REM --- Стартиране на приложението без конзола ---
+echo Starting TSA-Security application...
+echo.
 
-exit
+REM --- ПРОМЯНА 1: Създаваме пътя до pythonw.exe ---
+set "PYTHONW_PATH=%PYTHON_PATH:python.exe=pythonw.exe%"
+
+REM --- ПРОМЯНА 2: Стартираме с pythonw.exe, за да скрием конзолата ---
+start "" "%PYTHONW_PATH%" main.py
+
+endlocal
+exit /b 0
