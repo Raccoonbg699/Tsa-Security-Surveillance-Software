@@ -12,13 +12,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon
 
-# --- ПРОМЯНА: Връщаме импортирането на преводача ---
 from data_manager import DataManager, get_translator
 from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage, UsersPage
 from ui_dialogs import CameraDialog, UserDialog
 from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
 from network_scanner import NetworkScanner, get_local_subnet
+from ui_media_viewer import MediaViewerDialog
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
@@ -102,7 +102,6 @@ class MainWindow(QMainWindow):
         button.setIconSize(QSize(24, 24))
         return button
     
-    # --- КОРЕКЦИЯ: Връщаме липсващия метод ---
     def apply_role_permissions(self):
         is_admin = self.user_role == "Administrator"
         self.btn_users.setVisible(is_admin)
@@ -201,8 +200,10 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("recordings")
         if not page or hasattr(page, 'is_setup'): return
         
-        page.view_button.clicked.connect(self.view_event)
+        page.view_in_app_button.clicked.connect(self.view_event_in_app)
+        page.open_in_player_button.clicked.connect(self.view_event_in_player)
         page.delete_button.clicked.connect(self.delete_event)
+        
         page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
         page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
         
@@ -397,6 +398,11 @@ class MainWindow(QMainWindow):
     def refresh_recordings_view(self):
         page = self.created_pages.get("recordings")
         if not page: return
+        
+        # Превеждаме бутоните тук, за да се обновят при смяна на езика
+        page.view_in_app_button.setText("Преглед в програмата")
+        page.open_in_player_button.setText("Отваряне в плейър")
+
         all_events = DataManager.load_events()
         cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
         event_types = sorted(list(set(event.get("event_type") for event in all_events)))
@@ -430,19 +436,41 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.ItemDataRole.UserRole, event)
                 page.list_widget.addItem(item)
     
-    def view_event(self):
+    def view_event_in_app(self):
         page = self.created_pages.get("recordings")
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
+        
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path = event_data.get("file_path")
+
         if not file_path or not os.path.exists(file_path):
             QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
             return
-        if sys.platform == "win32": os.startfile(file_path)
-        elif sys.platform == "darwin": subprocess.Popen(["open", file_path])
-        else: subprocess.Popen(["xdg-open", file_path])
+        
+        viewer = MediaViewerDialog(file_path, parent=self)
+        viewer.exec()
+
+    def view_event_in_player(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        
+        event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        file_path = event_data.get("file_path")
+
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
+            return
+        
+        if sys.platform == "win32":
+            os.startfile(file_path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", file_path])
+        else:
+            subprocess.Popen(["xdg-open", file_path])
 
     def delete_event(self):
         page = self.created_pages.get("recordings")

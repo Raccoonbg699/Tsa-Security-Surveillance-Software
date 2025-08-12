@@ -5,21 +5,18 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
-# --- ПРОМЯНА: Импортираме преводача ---
 from data_manager import get_translator
 
 class CamerasPage(QWidget):
     """Страница за управление на камери."""
     def __init__(self):
         super().__init__()
-        # --- ПРОМЯНА: Взимаме инстанция на преводача ---
         translator = get_translator()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        # --- ПРОМЯНА: Всички текстове се превеждат ---
         title = QLabel(translator.get_string("page_cameras_title"))
         font = title.font()
         font.setPointSize(18)
@@ -134,14 +131,19 @@ class RecordingsPage(QWidget):
         font.setBold(True)
         title.setFont(font)
         
-        self.view_button = QPushButton(translator.get_string("view_recording_button"))
+        # --- ПРОМЯНА: Добавяме нов бутон и преименуваме стария ---
+        self.view_in_app_button = QPushButton("Преглед в програмата") # Този текст ще се преведе в ui_main_window
+        self.open_in_player_button = QPushButton("Отваряне в плейър") # Този също
         self.delete_button = QPushButton(translator.get_string("delete_recording_button"))
-        self.view_button.setEnabled(False)
+        
+        self.view_in_app_button.setEnabled(False)
+        self.open_in_player_button.setEnabled(False)
         self.delete_button.setEnabled(False)
 
         top_layout.addWidget(title)
         top_layout.addStretch()
-        top_layout.addWidget(self.view_button)
+        top_layout.addWidget(self.view_in_app_button)
+        top_layout.addWidget(self.open_in_player_button)
         top_layout.addWidget(self.delete_button)
 
         filters_layout = QHBoxLayout()
@@ -163,7 +165,9 @@ class RecordingsPage(QWidget):
         
     def on_selection_changed(self):
         is_selected = bool(self.list_widget.selectedItems())
-        self.view_button.setEnabled(is_selected)
+        # --- ПРОМЯНА: Активираме и новия бутон ---
+        self.view_in_app_button.setEnabled(is_selected)
+        self.open_in_player_button.setEnabled(is_selected)
         self.delete_button.setEnabled(is_selected)
 
 class SettingsPage(QWidget):
@@ -193,7 +197,6 @@ class SettingsPage(QWidget):
         self.grid_combo = QComboBox()
         self.grid_combo.addItems(["1x1", "2x2", "3x3"])
         
-        # --- ПРОМЯНА: Добавяме падащо меню за език ---
         self.lang_combo = QComboBox()
         self.lang_combo.addItem("Български", "bg")
         self.lang_combo.addItem("English", "en")
