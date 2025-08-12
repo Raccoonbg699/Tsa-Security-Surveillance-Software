@@ -44,6 +44,8 @@ class VideoWorker(QThread):
     StreamStatus = Signal(str)
     MotionDetected = Signal(str)
     FrameForRecording = Signal(object)
+    # --- ПРОМЯНА 1: Нов сигнал, който изпраща реалния FPS ---
+    ActualFPSEstimated = Signal(str, float)
 
     def __init__(self, camera_data, recording_path):
         super().__init__()
@@ -58,7 +60,6 @@ class VideoWorker(QThread):
         self._prev_frame_gray = None
         self.latest_frame = None
         self.frame_lock = threading.Lock()
-        self.stream_fps = 20.0
         self.processing_thread = threading.Thread(target=self._process_frames, daemon=True)
 
     def run(self):
@@ -68,11 +69,6 @@ class VideoWorker(QThread):
             self.StreamStatus.emit("Грешка")
             self._is_running = False
             return
-            
-        detected_fps = cap.get(cv2.CAP_PROP_FPS)
-        if 0 < detected_fps < 100:
-            self.stream_fps = detected_fps
-        print(f"Stream for {self.rtsp_url} opened with FPS: {self.stream_fps}")
 
         while self._is_running:
             ret, frame = cap.read()
@@ -90,10 +86,11 @@ class VideoWorker(QThread):
         print(f"Нишката за четене на {self.rtsp_url} приключи.")
 
     def _process_frames(self):
-        """
-        НИШКА ЗА ОБРАБОТКА - с HD качество на картината.
-        """
         frame_counter = 0
+        # --- ПРОМЯНА 2: Променливи за измерване на FPS ---
+        fps_start_time = time.time()
+        fps_frame_count = 0
+
         while self._is_running:
             frame = self.frame_queue.get()
             if frame is None:
@@ -104,8 +101,6 @@ class VideoWorker(QThread):
             
             self.FrameForRecording.emit(frame)
 
-            # --- ПРОМЯНА: Вдигаме резолюцията до 720p за HD качество ---
-            # Старата стойност беше (960, 540)
             display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
 
             frame_counter += 1
@@ -117,6 +112,18 @@ class VideoWorker(QThread):
             bytes_per_line = ch * w
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             self.ImageUpdate.emit(qt_image)
+            
+            # --- ПРОМЯНА 3: Логика за измерване и изпращане на FPS ---
+            fps_frame_count += 1
+            current_time = time.time()
+            elapsed_time = current_time - fps_start_time
+            # Изпращаме стойност на всеки 5 секунди
+            if elapsed_time > 5:
+                actual_fps = fps_frame_count / elapsed_time
+                self.ActualFPSEstimated.emit(self.camera_data.get("id"), actual_fps)
+                # Нулираме броячите за следващото измерване
+                fps_start_time = current_time
+                fps_frame_count = 0
         
         print(f"Нишката за обработка на {self.rtsp_url} приключи.")
 
@@ -146,9 +153,6 @@ class VideoWorker(QThread):
         self._is_running = False
         if self.processing_thread.is_alive():
             self.processing_thread.join()
-
-    def get_stream_fps(self):
-        return self.stream_fps
 
     def get_latest_frame(self):
         with self.frame_lock:

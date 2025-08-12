@@ -1,12 +1,17 @@
 @echo off
 setlocal
 
+rem --- ПРОМЯНА 1: Задаваме глобална кодова таблица за Python ---
+set PYTHONIOENCODING=UTF-8
+
+rem --- ПРОМЯНА 2: Сменяме кодовата таблица на конзолата на UTF-8 ---
+chcp 65001 >nul
+
 echo ===============================================================
 echo  TSA-Security Startup Script
 echo  (No requirements.txt needed)
 echo ===============================================================
 echo.
-
 REM --- Търсене на Python ---
 echo Searching for Python installation...
 for /f "delims=" %%p in ('where python.exe') do (
@@ -27,9 +32,9 @@ echo.
 REM --- Инсталиране на зависимости директно ---
 echo Checking and installing required libraries...
 echo.
-
 echo Installing/Verifying PySide6...
-"%PYTHON_PATH%" -m pip install PySide6 >nul
+rem --- ПРОМЯНА 3: Използваме --progress-bar off, за да избегнем проблемния символ ---
+"%PYTHON_PATH%" -m pip install PySide6 --progress-bar off
 if %errorlevel% neq 0 (
     echo.
     echo ERROR: Failed to install PySide6.
@@ -40,7 +45,8 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Installing/Verifying OpenCV...
-"%PYTHON_PATH%" -m pip install opencv-python >nul
+rem --- ПРОМЯНА 4: И тук изключваме progress bar-a за всеки случай ---
+"%PYTHON_PATH%" -m pip install opencv-python --progress-bar off
 if %errorlevel% neq 0 (
     echo.
     echo ERROR: Failed to install opencv-python.
@@ -56,7 +62,6 @@ echo.
 REM --- Стартиране на приложението без конзола ---
 echo Starting TSA-Security application...
 echo.
-
 REM --- ПРОМЯНА 1: Създаваме пътя до pythonw.exe ---
 set "PYTHONW_PATH=%PYTHON_PATH:python.exe=pythonw.exe%"
 

@@ -1,44 +1,37 @@
 [
     {
-        "event_id": "d98fe7fe-0d52-428a-b7fb-07741165808d",
-        "timestamp": "2025-08-12 18:16:22",
+        "event_id": "50850bb1-f28d-4de3-a773-0e454a0b2aef",
+        "timestamp": "2025-08-12 23:18:06",
+        "camera_name": "Камера @ 192.168.1.14",
+        "event_type": "Ръчен запис",
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.14_20250812_231806.mp4"
+    },
+    {
+        "event_id": "deea735e-4ad2-4373-b942-fbbbef10223f",
+        "timestamp": "2025-08-12 23:17:51",
         "camera_name": "Камера @ 192.168.1.14",
         "event_type": "Снимка",
-        "file_path": "C:\\TSA-Security\\Recordings\\snap_Камера_@_192.168.1.14_20250812_181622.jpg"
+        "file_path": "C:\\TSA-Security\\Recordings\\snap_Камера_@_192.168.1.14_20250812_231751.jpg"
     },
     {
-        "event_id": "c37b20f6-81e4-4fee-8e09-bdff7ecb0d8f",
-        "timestamp": "2025-08-12 18:00:56",
-        "camera_name": "Камера @ 192.168.1.13",
-        "event_type": "Ръчен запис",
-        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250812_180056.mp4"
-    },
-    {
-        "event_id": "e3dd362b-f900-4221-a429-67632f12f2d9",
-        "timestamp": "2025-08-12 17:12:43",
-        "camera_name": "Камера @ 192.168.1.13",
-        "event_type": "Ръчен запис",
-        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250812_171243.mp4"
-    },
-    {
-        "event_id": "5eb2cbdc-6df4-4a3f-b4eb-432260a62bb8",
-        "timestamp": "2025-08-12 16:57:22",
-        "camera_name": "Камера @ 192.168.1.13",
-        "event_type": "Ръчен запис",
-        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250812_165722.mp4"
-    },
-    {
-        "event_id": "fc465035-0d07-416a-ae55-a3e60c4ab27a",
-        "timestamp": "2025-08-12 16:56:28",
+        "event_id": "18eef43d-ecb6-4e9f-b8d9-363659299bce",
+        "timestamp": "2025-08-12 23:12:32",
         "camera_name": "Камера @ 192.168.1.14",
         "event_type": "Ръчен запис",
-        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.14_20250812_165627.mp4"
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.14_20250812_231232.mp4"
     },
     {
-        "event_id": "3ccfc4f4-20e7-4056-9fd0-3f5e3b3a2d6d",
-        "timestamp": "2025-08-11 01:41:27",
-        "camera_name": "Камера @ 192.168.1.14",
+        "event_id": "e77171c4-1a7f-4da3-b033-7cfecc28c6b3",
+        "timestamp": "2025-08-12 23:08:28",
+        "camera_name": "Камера @ 192.168.1.13",
         "event_type": "Снимка",
-        "file_path": "C:\\TSA-Security\\Recordings\\snap_Камера_@_192.168.1.14_20250811_014126.jpg"
+        "file_path": "C:\\TSA-Security\\Recordings\\snap_Камера_@_192.168.1.13_20250812_230828.jpg"
+    },
+    {
+        "event_id": "12658888-2809-4b47-972c-f545d1debfcf",
+        "timestamp": "2025-08-12 23:08:14",
+        "camera_name": "Камера @ 192.168.1.13",
+        "event_type": "Ръчен запис",
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250812_230814.mp4"
     }
 ]

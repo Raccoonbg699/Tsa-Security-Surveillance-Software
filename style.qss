@@ -59,7 +59,7 @@ QLineEdit:focus {
 
 /* --- Списъци --- */
 QListWidget {
-    background-color: #2D2D2D;
+    background-color: #1E1E1E; /* Променяме основния фон да е като на прозореца */
     border: 1px solid #3E3E42;
     border-radius: 8px;
     padding: 5px;
@@ -67,6 +67,12 @@ QListWidget {
 QListWidget::item {
     padding: 10px;
     border-radius: 6px;
+    background-color: transparent; /* Правим фона на обикновените редове прозрачен */
+    color: #F0F0F0; /* --- ПРОМЯНА 1: Задаваме цвета на текста тук --- */
+}
+/* --- ПРОМЯНА 2: Задаваме изричен цвят за редуващите се редове --- */
+QListWidget::item:alternate {
+    background-color: #2D2D2D; 
 }
 QListWidget::item:hover {
     background-color: #3A3A3A;
@@ -113,14 +119,14 @@ QComboBox::drop-down {
     border: none;
 }
 QComboBox::down-arrow {
-    image: url(icons/arrow-down.png); /* Ще ни трябва тази икона */
+    image: url(icons/arrow-down.png); 
     width: 16px;
     height: 16px;
 }
 
 /* --- Прозорец за вход --- */
 #LoginPage {
-    background-color: #241D1A; /* Специфичен фон за логин страницата */
+    background-color: #241D1A; 
 }
 #LoginTitle {
     font-size: 28px;

@@ -17,7 +17,6 @@ from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage, Us
 from ui_dialogs import CameraDialog, UserDialog
 from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
-# --- ПРОМЯНА: Импортираме нужните класове за сканиране ---
 from network_scanner import NetworkScanner, get_local_subnet
 
 class MainWindow(QMainWindow):
@@ -33,7 +32,9 @@ class MainWindow(QMainWindow):
         self.recording_worker = None
         self.created_pages = {}
         
-        # --- ПРОМЯНА: Променливи за скенера ---
+        # --- ПРОМЯНА 1: Речник за съхранение на реалния FPS ---
+        self.measured_fps = {}
+        
         self.scanner_thread = None
         self.scanner = None
         self.progress_dialog = None
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         self.setCentralWidget(main_widget)
 
+        # ... (останалата част от __init__ е непроменена) ...
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(200)
@@ -79,6 +81,79 @@ class MainWindow(QMainWindow):
         btn_live_view.setChecked(True)
         self.show_live_view_page()
     
+    # --- ПРОМЯНА 2: Нов метод за обновяване на FPS ---
+    def update_measured_fps(self, camera_id, fps):
+        """Приема сигнала от VideoWorker и запазва измерения FPS."""
+        # print(f"Received FPS for {camera_id}: {fps:.2f}") # За дебъг
+        self.measured_fps[camera_id] = fps
+
+    def start_single_worker(self, cam_data, frame_widget):
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        
+        cam_id = cam_data.get("id")
+        worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
+        worker.ImageUpdate.connect(frame_widget.update_frame)
+        worker.StreamStatus.connect(frame_widget.update_status)
+        worker.MotionDetected.connect(self.on_motion_detected)
+        worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
+        # --- ПРОМЯНА 3: Свързваме новия сигнал към новия метод ---
+        worker.ActualFPSEstimated.connect(self.update_measured_fps)
+        
+        worker.start()
+        self.video_workers[cam_id] = worker
+
+    def toggle_manual_recording(self, is_recording):
+        page = self.created_pages.get("live_view")
+        if not page: return
+
+        worker, widget = self.get_camera_to_control()
+        if not worker or not widget: 
+            page.record_button.setChecked(False)
+            return
+
+        if is_recording:
+            if self.recording_worker: return
+            settings = DataManager.load_settings()
+            recording_path = Path(settings.get("recording_path"))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
+            
+            frame = worker.get_latest_frame()
+            if frame is None:
+                page.record_button.setChecked(False)
+                return
+            height, width, _ = frame.shape
+            
+            # --- ПРОМЯНА 4: Използваме съхранения, измерен FPS ---
+            cam_id = worker.camera_data.get("id")
+            # Използваме 15.0 като разумна стойност по подразбиране, ако още не е измерена
+            fps = self.measured_fps.get(cam_id, 15.0)
+
+            print(f"Starting recording for {cam_id} with measured FPS: {fps:.2f}")
+
+            self.recording_worker = RecordingWorker(str(filename), width, height, fps)
+            worker.FrameForRecording.connect(self.handle_frame_for_recording)
+            self.recording_worker.start()
+            
+            widget.set_recording_state(True)
+            self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
+            print(f"Ръчен запис стартиран: {filename}")
+        else:
+            if self.recording_worker:
+                try:
+                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                except (TypeError, RuntimeError):
+                    pass
+                self.recording_worker.stop()
+                self.recording_worker.wait()
+                self.recording_worker = None
+                if widget: widget.set_recording_state(False)
+                print("Ръчен запис спрян.")
+    
+    #
+    # --- НЯМА ДРУГИ ПРОМЕНИ В ОСТАНАЛАТА ЧАСТ ОТ ФАЙЛА ---
+    #
     def create_nav_button(self, text, relative_icon_path):
         button = QPushButton(text)
         button.setObjectName("NavButton")
@@ -101,13 +176,11 @@ class MainWindow(QMainWindow):
         if hasattr(current_widget, 'page_name') and current_widget.page_name == "live_view":
              self.stop_all_streams()
 
-        # Създаваме страницата, ако не съществува
         if page_name not in self.created_pages:
             if page_name == "live_view":
                 self.created_pages[page_name] = self._create_live_view_page()
             elif page_name == "cameras":
                 self.created_pages[page_name] = self._create_cameras_page()
-            # ... добавете другите страници по същия начин, ако е нужно
             self.pages.addWidget(self.created_pages[page_name])
 
         self.pages.setCurrentWidget(self.created_pages[page_name])
@@ -129,7 +202,6 @@ class MainWindow(QMainWindow):
         page.add_button.clicked.connect(self.add_camera)
         page.edit_button.clicked.connect(self.edit_camera)
         page.delete_button.clicked.connect(self.delete_camera)
-        # --- ПРОМЯНА: Свързваме бутона за сканиране ---
         page.scan_button.clicked.connect(self.scan_network)
 
         if self.user_role != "Administrator":
@@ -146,8 +218,7 @@ class MainWindow(QMainWindow):
             self.created_pages[page_name] = self._create_cameras_page()
             self.pages.addWidget(self.created_pages[page_name])
         self.switch_to_page(page_name)
-    
-    # --- ПРОМЯНА: Нови методи за сканиране ---
+
     def scan_network(self):
         subnet = get_local_subnet()
         if not subnet:
@@ -177,7 +248,6 @@ class MainWindow(QMainWindow):
 
     def add_scanned_camera(self, ip_address):
         cameras = DataManager.load_cameras()
-        # Проверка дали камера с този IP адрес вече съществува
         if any(ip_address in cam.get('rtsp_url', '') for cam in cameras):
             print(f"Камера с IP {ip_address} вече съществува. Пропускане.")
             return
@@ -205,8 +275,6 @@ class MainWindow(QMainWindow):
             self.scanner_thread.wait()
             self.scanner_thread = None
             self.scanner = None
-
-    # --- Край на новите методи за сканиране ---
 
     def show_live_view_page(self):
         page_name = "live_view"
@@ -273,11 +341,7 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         
         self.switch_to_page(page_name)
-    
-    # Останалите методи остават почти същите, само add_camera и edit_camera
-    # трябва да обработват новата `motion_enabled` настройка.
 
-    # ... (методите от load_settings до stop_all_streams остават същите) ...
     def load_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
@@ -320,20 +384,6 @@ class MainWindow(QMainWindow):
             self.start_single_worker(cam_data, frame_widget)
             self.active_video_widgets[cam_id] = frame_widget
         self.update_grid_layout()
-
-    def start_single_worker(self, cam_data, frame_widget):
-        settings = DataManager.load_settings()
-        recording_path = Path(settings.get("recording_path"))
-        
-        cam_id = cam_data.get("id")
-        worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
-        worker.ImageUpdate.connect(frame_widget.update_frame)
-        worker.StreamStatus.connect(frame_widget.update_status)
-        worker.MotionDetected.connect(self.on_motion_detected)
-        worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
-        
-        worker.start()
-        self.video_workers[cam_id] = worker
 
     def handle_worker_finished(self, cam_id):
         print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
@@ -381,7 +431,6 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, cam)
             page.list_widget.addItem(item)
     
-    # ... (refresh_recordings_view и apply_event_filters остават същите) ...
     def refresh_recordings_view(self):
         page = self.created_pages.get("recordings")
         if not page: return
@@ -498,7 +547,6 @@ class MainWindow(QMainWindow):
             DataManager.save_cameras(updated_cameras)
             self.refresh_cameras_view()
 
-    # ... (методите за потребители и closeEvent остават същите) ...
     def refresh_users_view(self):
         page = self.created_pages.get("users")
         if not page: return
@@ -568,12 +616,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.stop_all_streams()
-        # Спираме скенера, ако работи
         if self.scanner:
             self.scanner.cancel()
         event.accept()
     
-    # ... (останалите методи до края остават същите) ...
     def update_grid_layout(self):
         page = self.created_pages.get("live_view")
         if not page: return
@@ -659,52 +705,6 @@ class MainWindow(QMainWindow):
                 cv2.imwrite(str(filename), frame)
                 print(f"Снимка запазена: {filename}")
                 self.add_event(worker.camera_data['id'], "Снимка", str(filename))
-
-    def toggle_manual_recording(self, is_recording):
-        page = self.created_pages.get("live_view")
-        if not page: return
-
-        worker, widget = self.get_camera_to_control()
-        if not worker or not widget: 
-            page.record_button.setChecked(False)
-            return
-
-        if is_recording:
-            if self.recording_worker: return
-            settings = DataManager.load_settings()
-            recording_path = Path(settings.get("recording_path"))
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
-            
-            frame = worker.get_latest_frame()
-            if frame is None:
-                page.record_button.setChecked(False)
-                return
-            height, width, _ = frame.shape
-            
-            fps = worker.get_stream_fps()
-            if fps <= 0:
-                print(f"Предупреждение: Не може да се определят кадрите. Използва се стойност по подразбиране 20.")
-                fps = 20.0
-
-            self.recording_worker = RecordingWorker(str(filename), width, height, fps)
-            worker.FrameForRecording.connect(self.handle_frame_for_recording)
-            self.recording_worker.start()
-            
-            widget.set_recording_state(True)
-            self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
-            print(f"Ръчен запис стартиран: {filename}")
-        else:
-            if self.recording_worker:
-                try:
-                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
-                except (TypeError, RuntimeError):
-                    pass
-                self.recording_worker.stop()
-                self.recording_worker.wait()
-                self.recording_worker = None
-                if widget: widget.set_recording_state(False)
-                print("Ръчен запис спрян.")
 
     def handle_frame_for_recording(self, frame):
         if self.recording_worker and self.recording_worker.isRunning():
