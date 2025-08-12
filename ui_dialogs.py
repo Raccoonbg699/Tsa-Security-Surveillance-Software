@@ -18,17 +18,23 @@ class CameraDialog(QDialog):
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
         self.status_checkbox = QCheckBox("Активна")
+        # --- ДОБАВЕНО: Отметка за детекция на движение ---
+        self.motion_checkbox = QCheckBox("Детекция на движение")
 
         if self.is_edit_mode:
             self.name_input.setText(camera_data.get("name", ""))
             self.url_input.setText(camera_data.get("rtsp_url", ""))
             self.status_checkbox.setChecked(camera_data.get("is_active", True))
+            # --- ДОБАВЕНО: Задаваме състоянието на отметката ---
+            self.motion_checkbox.setChecked(camera_data.get("motion_enabled", True))
         else:
             self.status_checkbox.setChecked(True)
+            self.motion_checkbox.setChecked(True) # Включена по подразбиране за нови камери
 
         form_layout.addRow("Име на камера:", self.name_input)
         form_layout.addRow("RTSP Адрес:", self.url_input)
         form_layout.addRow(self.status_checkbox)
+        form_layout.addRow(self.motion_checkbox) # --- ДОБАВЕНО: Поле във формата
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -41,7 +47,9 @@ class CameraDialog(QDialog):
         return {
             "name": self.name_input.text().strip(),
             "rtsp_url": self.url_input.text().strip(),
-            "is_active": self.status_checkbox.isChecked()
+            "is_active": self.status_checkbox.isChecked(),
+            # --- ДОБАВЕНО: Връщаме новата стойност ---
+            "motion_enabled": self.motion_checkbox.isChecked()
         }
 
 class UserDialog(QDialog):

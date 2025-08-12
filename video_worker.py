@@ -57,7 +57,8 @@ class VideoWorker(QThread):
         # Опашка с максимален размер 2, за да не се трупа закъснение
         self.frame_queue = Queue(maxsize=2)
         
-        self.motion_enabled = True 
+        # Четем настройката за детекция от данните на камерата
+        self.motion_enabled = camera_data.get("motion_enabled", True)
         self.motion_sensitivity = 500
 
         self._is_running = True
@@ -131,7 +132,7 @@ class VideoWorker(QThread):
             # Изпращаме всеки кадър за евентуален запис
             self.FrameForRecording.emit(frame)
             
-            # Детекцията на движение си остава оптимизирана
+            # Проверяваме дали изобщо трябва да правим детекция
             if self.motion_enabled and frame_counter % 3 == 0:
                 self.handle_motion_detection(frame)
 
@@ -157,8 +158,9 @@ class VideoWorker(QThread):
             self.processing_thread.join()
 
     def handle_motion_detection(self, frame):
+        # ДРАСТИЧНА ОПТИМИЗАЦИЯ
         height, width, _ = frame.shape
-        processing_width = 320 
+        processing_width = 160 # Още по-малка резолюция
         scale = processing_width / width
         new_width = processing_width
         new_height = int(height * scale)
@@ -166,17 +168,19 @@ class VideoWorker(QThread):
         resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
         gray = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
-
+        
+        # GaussianBlur е премахнат за максимално облекчение
+        
         if self._prev_frame_gray is None:
             self._prev_frame_gray = gray
             return
 
         frame_delta = cv2.absdiff(self._prev_frame_gray, gray)
-        thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
+        thresh = cv2.threshold(frame_delta, 30, 255, cv2.THRESH_BINARY)[1] # Леко вдигнат праг
         motion_pixels = cv2.countNonZero(thresh)
 
-        if motion_pixels > self.motion_sensitivity:
+        # Коригирана чувствителност
+        if motion_pixels > self.motion_sensitivity / 4: 
             self.MotionDetected.emit(self.camera_data.get("id"))
 
         self._prev_frame_gray = gray
