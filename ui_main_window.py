@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 import cv2
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem
 )
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
@@ -258,15 +258,32 @@ class MainWindow(QMainWindow):
         page.grid_combo.setCurrentText(settings_data.get("default_grid", "2x2"))
         page.path_edit.setText(settings_data.get("recording_path", ""))
 
+    def apply_theme(self, theme_name):
+        """Зарежда и прилага QSS файл към цялото приложение."""
+        style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
+        style_file = self.base_dir / style_file_name
+        try:
+            with open(style_file, "r", encoding="utf-8") as f:
+                style_sheet = f.read()
+                QApplication.instance().setStyleSheet(style_sheet)
+        except FileNotFoundError:
+            print(f"Предупреждение: Файлът със стилове {style_file} не е намерен.")
+
     def save_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
+        
+        new_theme = "dark" if page.theme_combo.currentText() == "Тъмна" else "light"
+        
         new_settings = {
-            "theme": "dark" if page.theme_combo.currentText() == "Тъмна" else "light",
+            "theme": new_theme,
             "default_grid": page.grid_combo.currentText(),
             "recording_path": page.path_edit.text()
         }
         DataManager.save_settings(new_settings)
+        
+        self.apply_theme(new_theme)
+        
         QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):

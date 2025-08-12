@@ -1,0 +1,159 @@
+/* style_light.qss - Светла тема */
+QWidget {
+    background-color: #F0F0F0; /* Основен светъл фон */
+    color: #1E1E1E; /* Тъмен текст */
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
+
+/* --- Странична лента --- */
+#Sidebar {
+    background-color: #E0E0E0; /* Малко по-тъмен фон за лентата */
+}
+
+QPushButton#NavButton {
+    background-color: transparent;
+    border: none;
+    padding: 12px;
+    margin: 4px;
+    text-align: left;
+    border-radius: 8px;
+    color: #505050; /* Сив текст за неактивни бутони */
+}
+
+QPushButton#NavButton:hover {
+    background-color: #D5D5D5;
+    color: #181818;
+}
+
+QPushButton#NavButton:checked {
+    background-color: #D9822B; /* Оранжев акцент за избран бутон */
+    color: #FFFFFF; /* Бял текст за акцента */
+}
+
+/* --- Основен прозорец --- */
+QMainWindow, QDialog {
+    background-color: #F0F0F0;
+}
+
+QLabel {
+    background-color: transparent;
+}
+
+/* --- Заглавия на страници --- */
+QLabel#PageTitle {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* --- Полета за въвеждане и търсене --- */
+QLineEdit {
+    background-color: #FFFFFF;
+    border: 1px solid #C0C0C0;
+    border-radius: 8px;
+    padding: 10px;
+}
+QLineEdit:focus {
+    border-color: #D9822B; /* Оранжев акцент при фокус */
+}
+
+/* --- Списъци --- */
+QListWidget {
+    background-color: #FFFFFF;
+    border: 1px solid #C0C0C0;
+    border-radius: 8px;
+    padding: 5px;
+}
+QListWidget::item {
+    padding: 10px;
+    border-radius: 6px;
+    background-color: transparent;
+    color: #1E1E1E;
+}
+QListWidget::item:alternate {
+    background-color: #F5F5F5; 
+}
+QListWidget::item:hover {
+    background-color: #E5E5E5;
+}
+QListWidget::item:selected {
+    background-color: #D9822B;
+    color: #FFFFFF;
+    border: 1px solid #D9822B;
+}
+
+/* --- Бутони --- */
+QPushButton {
+    background-color: #DCDCDC;
+    color: #1E1E1E;
+    border: 1px solid #B0B0B0;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #C8C8C8;
+    border-color: #A0A0A0;
+}
+
+/* Акцентен (оранжев) бутон */
+QPushButton#AccentButton {
+    background-color: #D9822B;
+    color: #FFFFFF;
+    border: none;
+}
+QPushButton#AccentButton:hover {
+    background-color: #E9923B;
+}
+
+/* --- Падащи менюта (филтри) --- */
+QComboBox {
+    background-color: #FFFFFF;
+    border: 1px solid #C0C0C0;
+    border-radius: 8px;
+    padding: 8px;
+}
+QComboBox::drop-down {
+    border: none;
+}
+QComboBox::down-arrow {
+    image: url(icons/arrow-down.png); 
+    width: 16px;
+    height: 16px;
+}
+
+/* --- ПРОМЯНА: Добавяме стил за отметките (QCheckBox) --- */
+QCheckBox {
+    spacing: 5px; /* Разстояние между кутийката и текста */
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #B0B0B0; /* Видима рамка */
+    border-radius: 4px;
+    background-color: #FFFFFF;
+}
+QCheckBox::indicator:hover {
+    border-color: #D9822B;
+}
+QCheckBox::indicator:checked {
+    background-color: #D9822B;
+    border-color: #D9822B;
+    /* Може да добавим и икона за отметка, ако е нужно */
+    /* image: url(icons/checkmark.png); */
+}
+
+
+/* --- Прозорец за вход --- */
+#LoginPage {
+    background-color: #F5F5DC; /* Бежов фон за логин страницата */
+}
+#LoginTitle {
+    font-size: 28px;
+    font-weight: bold;
+}
+#LoginLabel {
+    color: #707070;
+    font-size: 12px;
+}

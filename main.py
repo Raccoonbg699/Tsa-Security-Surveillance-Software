@@ -7,6 +7,7 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 from ui_login_window import LoginWindow
 from ui_main_window import MainWindow
+from data_manager import DataManager
 
 BASE_DIR = Path(__file__).parent
 
@@ -27,30 +28,33 @@ class ApplicationController:
         """Показва главния прозорец след успешен вход."""
         print(f"Потребител с роля '{user_role}' влезе в системата.")
         self.main_window = MainWindow(base_dir=BASE_DIR, user_role=user_role)
-        # --- ПРОМЯНА: Свързваме сигнала за изход към новия метод ---
         self.main_window.logout_requested.connect(self.handle_logout)
         self.main_window.show()
 
-    # --- ПРОМЯНА: Нов метод за излизане от системата ---
     def handle_logout(self):
         """Затваря главния прозорец и показва отново екрана за вход."""
         if self.main_window:
             self.main_window.close()
             self.main_window = None
         
-        # Показваме отново прозореца за вход
         self.start()
 
 def main():
     """Основна функция за стартиране на приложението."""
     app = QApplication(sys.argv)
     
-    style_file = BASE_DIR / "style.qss"
     try:
+        settings = DataManager.load_settings()
+        theme = settings.get("theme", "dark")
+        
+        style_file_name = "style.qss" if theme == "dark" else "style_light.qss"
+        style_file = BASE_DIR / style_file_name
+        
         with open(style_file, "r", encoding="utf-8") as f:
             app.setStyleSheet(f.read())
+            
     except FileNotFoundError:
-        print(f"Предупреждение: Файлът {style_file} не е намерен.")
+        print(f"Предупреждение: Файл със стилове не е намерен.")
 
     controller = ApplicationController(app)
     controller.start()
