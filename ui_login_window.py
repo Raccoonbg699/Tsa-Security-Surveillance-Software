@@ -14,14 +14,14 @@ class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("LoginPage")
-        self.setWindowTitle("SecureView - Вход")
+        self.setWindowTitle("Tsa-Security - Вход")
         self.setFixedSize(600, 400)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(80, 50, 80, 50)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title_label = QLabel("Вход в акаунта")
+        title_label = QLabel("Добре Дошли")
         title_label.setObjectName("LoginTitle")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

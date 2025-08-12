@@ -17,7 +17,8 @@ from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage, Us
 from ui_dialogs import CameraDialog, UserDialog
 from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
-# from network_scanner import NetworkScanner, get_local_subnet
+# --- ПРОМЯНА: Импортираме нужните класове за сканиране ---
+from network_scanner import NetworkScanner, get_local_subnet
 
 class MainWindow(QMainWindow):
     def __init__(self, base_dir, user_role):
@@ -31,6 +32,11 @@ class MainWindow(QMainWindow):
         self.active_video_widgets = {}
         self.recording_worker = None
         self.created_pages = {}
+        
+        # --- ПРОМЯНА: Променливи за скенера ---
+        self.scanner_thread = None
+        self.scanner = None
+        self.progress_dialog = None
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -95,6 +101,15 @@ class MainWindow(QMainWindow):
         if hasattr(current_widget, 'page_name') and current_widget.page_name == "live_view":
              self.stop_all_streams()
 
+        # Създаваме страницата, ако не съществува
+        if page_name not in self.created_pages:
+            if page_name == "live_view":
+                self.created_pages[page_name] = self._create_live_view_page()
+            elif page_name == "cameras":
+                self.created_pages[page_name] = self._create_cameras_page()
+            # ... добавете другите страници по същия начин, ако е нужно
+            self.pages.addWidget(self.created_pages[page_name])
+
         self.pages.setCurrentWidget(self.created_pages[page_name])
         
         if page_name == "live_view":
@@ -108,6 +123,91 @@ class MainWindow(QMainWindow):
         elif page_name == "users":
             self.refresh_users_view()
 
+    def _create_cameras_page(self):
+        page = CamerasPage()
+        page.page_name = "cameras"
+        page.add_button.clicked.connect(self.add_camera)
+        page.edit_button.clicked.connect(self.edit_camera)
+        page.delete_button.clicked.connect(self.delete_camera)
+        # --- ПРОМЯНА: Свързваме бутона за сканиране ---
+        page.scan_button.clicked.connect(self.scan_network)
+
+        if self.user_role != "Administrator":
+            page.add_button.hide()
+            page.edit_button.hide()
+            page.delete_button.hide()
+            page.scan_button.hide()
+            page.search_input.hide()
+        return page
+
+    def show_cameras_page(self):
+        page_name = "cameras"
+        if page_name not in self.created_pages:
+            self.created_pages[page_name] = self._create_cameras_page()
+            self.pages.addWidget(self.created_pages[page_name])
+        self.switch_to_page(page_name)
+    
+    # --- ПРОМЯНА: Нови методи за сканиране ---
+    def scan_network(self):
+        subnet = get_local_subnet()
+        if not subnet:
+            QMessageBox.warning(self, "Грешка", "Не може да се определи локалната мрежа.")
+            return
+
+        self.progress_dialog = QProgressDialog("Сканиране на мрежата за камери...", "Отказ", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Сканиране")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        
+        self.scanner_thread = QThread()
+        self.scanner = NetworkScanner(subnet)
+        self.scanner.moveToThread(self.scanner_thread)
+
+        self.scanner.scan_progress.connect(self.progress_dialog.setValue)
+        self.scanner.camera_found.connect(self.add_scanned_camera)
+        self.scanner.scan_finished.connect(self.on_scan_finished)
+        self.progress_dialog.canceled.connect(self.scanner.cancel)
+        
+        self.scanner_thread.started.connect(self.scanner.run)
+        
+        page = self.created_pages.get("cameras")
+        if page: page.scan_button.setEnabled(False)
+        
+        self.scanner_thread.start()
+        self.progress_dialog.show()
+
+    def add_scanned_camera(self, ip_address):
+        cameras = DataManager.load_cameras()
+        # Проверка дали камера с този IP адрес вече съществува
+        if any(ip_address in cam.get('rtsp_url', '') for cam in cameras):
+            print(f"Камера с IP {ip_address} вече съществува. Пропускане.")
+            return
+
+        new_cam_data = {
+            "id": str(uuid.uuid4()),
+            "name": f"Камера @ {ip_address}",
+            "rtsp_url": f"rtsp://{ip_address}:554/",
+            "is_active": True,
+            "motion_enabled": True
+        }
+        cameras.append(new_cam_data)
+        DataManager.save_cameras(cameras)
+        self.refresh_cameras_view()
+
+    def on_scan_finished(self, message):
+        QMessageBox.information(self, "Сканирането приключи", message)
+        self.progress_dialog.close()
+        
+        page = self.created_pages.get("cameras")
+        if page: page.scan_button.setEnabled(True)
+
+        if self.scanner_thread:
+            self.scanner_thread.quit()
+            self.scanner_thread.wait()
+            self.scanner_thread = None
+            self.scanner = None
+
+    # --- Край на новите методи за сканиране ---
+
     def show_live_view_page(self):
         page_name = "live_view"
         if page_name not in self.created_pages:
@@ -119,27 +219,6 @@ class MainWindow(QMainWindow):
             page.grid_2x2_button.clicked.connect(self.update_grid_layout)
             page.grid_3x3_button.clicked.connect(self.update_grid_layout)
             page.camera_selector.currentIndexChanged.connect(self.update_grid_layout)
-            self.created_pages[page_name] = page
-            self.pages.addWidget(page)
-        self.switch_to_page(page_name)
-
-    def show_cameras_page(self):
-        page_name = "cameras"
-        if page_name not in self.created_pages:
-            page = CamerasPage()
-            page.page_name = page_name
-            page.add_button.clicked.connect(self.add_camera)
-            page.edit_button.clicked.connect(self.edit_camera)
-            page.delete_button.clicked.connect(self.delete_camera)
-            # page.scan_button.clicked.connect(self.scan_network)
-
-            if self.user_role != "Administrator":
-                page.add_button.hide()
-                page.edit_button.hide()
-                page.delete_button.hide()
-                page.scan_button.hide()
-                page.search_input.hide()
-
             self.created_pages[page_name] = page
             self.pages.addWidget(page)
         self.switch_to_page(page_name)
@@ -194,7 +273,11 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         
         self.switch_to_page(page_name)
+    
+    # Останалите методи остават почти същите, само add_camera и edit_camera
+    # трябва да обработват новата `motion_enabled` настройка.
 
+    # ... (методите от load_settings до stop_all_streams остават същите) ...
     def load_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
@@ -292,11 +375,13 @@ class MainWindow(QMainWindow):
         cameras_data = DataManager.load_cameras()
         for cam in cameras_data:
             status = "Активна" if cam.get('is_active') else "Неактивна"
-            item_text = f"{cam['name']}\n{cam['rtsp_url']} - Статус: {status}"
+            motion = "Детекция ВКЛ" if cam.get('motion_enabled') else "Детекция ИЗКЛ"
+            item_text = f"{cam['name']} - {status} - {motion}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, cam)
             page.list_widget.addItem(item)
     
+    # ... (refresh_recordings_view и apply_event_filters остават същите) ...
     def refresh_recordings_view(self):
         page = self.created_pages.get("recordings")
         if not page: return
@@ -310,7 +395,7 @@ class MainWindow(QMainWindow):
         page.camera_filter.addItem("Всички камери")
         page.event_type_filter.addItem("Всички типове")
         page.camera_filter.addItems(cameras)
-        page.camera_filter.addItems(event_types)
+        page.event_type_filter.addItems(event_types)
         page.camera_filter.blockSignals(False)
         page.event_type_filter.blockSignals(False)
         self.apply_event_filters()
@@ -413,6 +498,7 @@ class MainWindow(QMainWindow):
             DataManager.save_cameras(updated_cameras)
             self.refresh_cameras_view()
 
+    # ... (методите за потребители и closeEvent остават същите) ...
     def refresh_users_view(self):
         page = self.created_pages.get("users")
         if not page: return
@@ -482,8 +568,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.stop_all_streams()
+        # Спираме скенера, ако работи
+        if self.scanner:
+            self.scanner.cancel()
         event.accept()
-
+    
+    # ... (останалите методи до края остават същите) ...
     def update_grid_layout(self):
         page = self.created_pages.get("live_view")
         if not page: return
@@ -547,7 +637,6 @@ class MainWindow(QMainWindow):
             cam_id = page.camera_selector.currentData()
         else:
             if self.active_video_widgets:
-                # Намираме първия видим уиджет в мрежата
                 for i in range(page.grid_layout.count()):
                     widget = page.grid_layout.itemAt(i).widget()
                     if widget and widget.isVisible():
@@ -593,9 +682,8 @@ class MainWindow(QMainWindow):
                 return
             height, width, _ = frame.shape
             
-            # Вземаме реалните FPS от нишката
             fps = worker.get_stream_fps()
-            if fps <= 0: # Допълнителна проверка
+            if fps <= 0:
                 print(f"Предупреждение: Не може да се определят кадрите. Използва се стойност по подразбиране 20.")
                 fps = 20.0
 
@@ -617,7 +705,6 @@ class MainWindow(QMainWindow):
                 self.recording_worker = None
                 if widget: widget.set_recording_state(False)
                 print("Ръчен запис спрян.")
-
 
     def handle_frame_for_recording(self, frame):
         if self.recording_worker and self.recording_worker.isRunning():
@@ -642,6 +729,3 @@ class MainWindow(QMainWindow):
         all_events = DataManager.load_events()
         all_events.insert(0, new_event)
         DataManager.save_events(all_events)
-    
-    # def scan_network(self):
-    #     pass
