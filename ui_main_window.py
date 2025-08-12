@@ -547,9 +547,12 @@ class MainWindow(QMainWindow):
             cam_id = page.camera_selector.currentData()
         else:
             if self.active_video_widgets:
-                first_widget = page.grid_layout.itemAt(0).widget()
-                if first_widget:
-                    cam_id = first_widget.camera_id
+                # Намираме първия видим уиджет в мрежата
+                for i in range(page.grid_layout.count()):
+                    widget = page.grid_layout.itemAt(i).widget()
+                    if widget and widget.isVisible():
+                        cam_id = widget.camera_id
+                        break
         
         if cam_id:
             return self.video_workers.get(cam_id), self.active_video_widgets.get(cam_id)
@@ -590,7 +593,11 @@ class MainWindow(QMainWindow):
                 return
             height, width, _ = frame.shape
             
-            fps = 20.0 
+            # Вземаме реалните FPS от нишката
+            fps = worker.get_stream_fps()
+            if fps <= 0: # Допълнителна проверка
+                print(f"Предупреждение: Не може да се определят кадрите. Използва се стойност по подразбиране 20.")
+                fps = 20.0
 
             self.recording_worker = RecordingWorker(str(filename), width, height, fps)
             worker.FrameForRecording.connect(self.handle_frame_for_recording)
@@ -610,6 +617,7 @@ class MainWindow(QMainWindow):
                 self.recording_worker = None
                 if widget: widget.set_recording_state(False)
                 print("Ръчен запис спрян.")
+
 
     def handle_frame_for_recording(self, frame):
         if self.recording_worker and self.recording_worker.isRunning():

@@ -46,7 +46,6 @@ class VideoWorker(QThread):
     ImageUpdate = Signal(QImage)
     StreamStatus = Signal(str)
     MotionDetected = Signal(str)
-    # --- ТУК Е ЛИПСВАЩИЯТ СИГНАЛ ---
     FrameForRecording = Signal(object)
 
     def __init__(self, camera_data, recording_path):
@@ -54,6 +53,10 @@ class VideoWorker(QThread):
         self.camera_data = camera_data
         self.rtsp_url = camera_data.get("rtsp_url")
         
+        self.target_fps = 15
+        self.frame_interval = 1.0 / self.target_fps
+        self.frame_counter = 0
+
         self.motion_enabled = True 
         self.motion_sensitivity = 500
 
@@ -61,6 +64,9 @@ class VideoWorker(QThread):
         self._prev_frame_gray = None
         self.latest_frame = None
         self.frame_lock = threading.Lock()
+        
+        # --- ПРОМЯНА 1: Добавяме променлива за реалните FPS ---
+        self.stream_fps = 20.0 # Стойност по подразбиране
 
     def run(self):
         self.StreamStatus.emit("Свързване...")
@@ -70,19 +76,33 @@ class VideoWorker(QThread):
             self.StreamStatus.emit("Грешка")
             return
 
+        # --- ПРОМЯНА 2: Опитваме се да вземем реалните FPS от потока ---
+        detected_fps = cap.get(cv2.CAP_PROP_FPS)
+        if 0 < detected_fps < 100:  # Проверка за разумна стойност
+            self.stream_fps = detected_fps
+        print(f"Stream for {self.rtsp_url} opened with FPS: {self.stream_fps}")
+
+        last_frame_time = time.time()
+
         while self._is_running:
             ret, frame = cap.read()
             if not ret:
                 self.StreamStatus.emit("Прекъсване")
                 break
             
+            current_time = time.time()
+            if current_time - last_frame_time < self.frame_interval:
+                continue
+            last_frame_time = current_time
+            
+            self.frame_counter += 1
+
             with self.frame_lock:
                 self.latest_frame = frame.copy()
             
-            # Изпращаме копие на кадъра за запис
             self.FrameForRecording.emit(frame)
             
-            if self.motion_enabled:
+            if self.motion_enabled and self.frame_counter % 3 == 0:
                 self.handle_motion_detection(frame)
 
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -95,7 +115,15 @@ class VideoWorker(QThread):
         print(f"Нишката за {self.rtsp_url} приключи.")
 
     def handle_motion_detection(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        height, width, _ = frame.shape
+        processing_width = 320 
+        scale = processing_width / width
+        new_width = processing_width
+        new_height = int(height * scale)
+        
+        resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+        gray = cv2.cvtColor(resized_frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
         if self._prev_frame_gray is None:
@@ -110,6 +138,11 @@ class VideoWorker(QThread):
             self.MotionDetected.emit(self.camera_data.get("id"))
 
         self._prev_frame_gray = gray
+    
+    # --- ПРОМЯНА 3: Нов метод, който главният прозорец ще използва ---
+    def get_stream_fps(self):
+        """Връща определените кадри в секунда за този видео поток."""
+        return self.stream_fps
 
     def get_latest_frame(self):
         with self.frame_lock:

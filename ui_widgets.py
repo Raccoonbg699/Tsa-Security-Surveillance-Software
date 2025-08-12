@@ -19,7 +19,8 @@ class AspectRatioLabel(QLabel):
             super().paintEvent(event)
             return
         
-        scaled_pixmap = self._pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        # --- ОПТИМИЗАЦИЯ 4: Използване на по-бързо мащабиране ---
+        scaled_pixmap = self._pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
         point = self.rect().center() - scaled_pixmap.rect().center()
         painter = QPainter(self)
         painter.drawPixmap(point, scaled_pixmap)
@@ -35,8 +36,6 @@ class VideoFrame(QFrame):
         self._is_recording = False
         self._is_motion = False
 
-        # --- ТУК Е КЛЮЧОВАТА ПОПРАВКА ---
-        # Създаваме таймера като част от този обект. Когато обектът се изтрие, и таймерът изчезва.
         self.motion_timer = QTimer(self)
         self.motion_timer.setSingleShot(True)
         self.motion_timer.timeout.connect(lambda: self.set_motion_state(False))
@@ -72,7 +71,6 @@ class VideoFrame(QFrame):
         self._is_motion = is_motion
         self.update_border_color()
         if is_motion:
-            # Стартираме нашия сигурен, вграден таймер
             self.motion_timer.start(1000)
     
     def update_border_color(self):

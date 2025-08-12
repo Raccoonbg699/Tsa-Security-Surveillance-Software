@@ -1,5 +1,26 @@
 [
     {
+        "event_id": "e3dd362b-f900-4221-a429-67632f12f2d9",
+        "timestamp": "2025-08-12 17:12:43",
+        "camera_name": "Камера @ 192.168.1.13",
+        "event_type": "Ръчен запис",
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250812_171243.mp4"
+    },
+    {
+        "event_id": "5eb2cbdc-6df4-4a3f-b4eb-432260a62bb8",
+        "timestamp": "2025-08-12 16:57:22",
+        "camera_name": "Камера @ 192.168.1.13",
+        "event_type": "Ръчен запис",
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250812_165722.mp4"
+    },
+    {
+        "event_id": "fc465035-0d07-416a-ae55-a3e60c4ab27a",
+        "timestamp": "2025-08-12 16:56:28",
+        "camera_name": "Камера @ 192.168.1.14",
+        "event_type": "Ръчен запис",
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.14_20250812_165627.mp4"
+    },
+    {
         "event_id": "3ccfc4f4-20e7-4056-9fd0-3f5e3b3a2d6d",
         "timestamp": "2025-08-11 01:41:27",
         "camera_name": "Камера @ 192.168.1.14",
