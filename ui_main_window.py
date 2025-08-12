@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem
 )
-from PySide6.QtCore import QSize, Qt, QThread, QTimer
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon
 
 from data_manager import DataManager
@@ -20,6 +20,8 @@ from ui_widgets import VideoFrame
 from network_scanner import NetworkScanner, get_local_subnet
 
 class MainWindow(QMainWindow):
+    logout_requested = Signal()
+
     def __init__(self, base_dir, user_role):
         super().__init__()
         self.base_dir = base_dir
@@ -31,8 +33,6 @@ class MainWindow(QMainWindow):
         self.active_video_widgets = {}
         self.recording_worker = None
         self.created_pages = {}
-        
-        # --- ПРОМЯНА 1: Речник за съхранение на реалния FPS ---
         self.measured_fps = {}
         
         self.scanner_thread = None
@@ -45,7 +45,6 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         self.setCentralWidget(main_widget)
 
-        # ... (останалата част от __init__ е непроменена) ...
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(200)
@@ -62,6 +61,7 @@ class MainWindow(QMainWindow):
         btn_recordings = self.create_nav_button("Записи", "icons/archive.png")
         self.btn_users = self.create_nav_button("Потребители", "icons/user.png")
         btn_settings = self.create_nav_button("Настройки", "icons/gear.png")
+        btn_logout = self.create_nav_button("Изход", "icons/logout.png")
 
         sidebar_layout.addWidget(btn_live_view)
         sidebar_layout.addWidget(btn_cameras)
@@ -69,96 +69,27 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch()
         sidebar_layout.addWidget(self.btn_users)
         sidebar_layout.addWidget(btn_settings)
+        sidebar_layout.addWidget(btn_logout)
 
         btn_live_view.clicked.connect(self.show_live_view_page)
         btn_cameras.clicked.connect(self.show_cameras_page)
         btn_recordings.clicked.connect(self.show_recordings_page)
         self.btn_users.clicked.connect(self.show_users_page)
         btn_settings.clicked.connect(self.show_settings_page)
+        btn_logout.clicked.connect(self.logout_requested.emit)
         
         self.apply_role_permissions()
         
         btn_live_view.setChecked(True)
         self.show_live_view_page()
     
-    # --- ПРОМЯНА 2: Нов метод за обновяване на FPS ---
-    def update_measured_fps(self, camera_id, fps):
-        """Приема сигнала от VideoWorker и запазва измерения FPS."""
-        # print(f"Received FPS for {camera_id}: {fps:.2f}") # За дебъг
-        self.measured_fps[camera_id] = fps
-
-    def start_single_worker(self, cam_data, frame_widget):
-        settings = DataManager.load_settings()
-        recording_path = Path(settings.get("recording_path"))
-        
-        cam_id = cam_data.get("id")
-        worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
-        worker.ImageUpdate.connect(frame_widget.update_frame)
-        worker.StreamStatus.connect(frame_widget.update_status)
-        worker.MotionDetected.connect(self.on_motion_detected)
-        worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
-        # --- ПРОМЯНА 3: Свързваме новия сигнал към новия метод ---
-        worker.ActualFPSEstimated.connect(self.update_measured_fps)
-        
-        worker.start()
-        self.video_workers[cam_id] = worker
-
-    def toggle_manual_recording(self, is_recording):
-        page = self.created_pages.get("live_view")
-        if not page: return
-
-        worker, widget = self.get_camera_to_control()
-        if not worker or not widget: 
-            page.record_button.setChecked(False)
-            return
-
-        if is_recording:
-            if self.recording_worker: return
-            settings = DataManager.load_settings()
-            recording_path = Path(settings.get("recording_path"))
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
-            
-            frame = worker.get_latest_frame()
-            if frame is None:
-                page.record_button.setChecked(False)
-                return
-            height, width, _ = frame.shape
-            
-            # --- ПРОМЯНА 4: Използваме съхранения, измерен FPS ---
-            cam_id = worker.camera_data.get("id")
-            # Използваме 15.0 като разумна стойност по подразбиране, ако още не е измерена
-            fps = self.measured_fps.get(cam_id, 15.0)
-
-            print(f"Starting recording for {cam_id} with measured FPS: {fps:.2f}")
-
-            self.recording_worker = RecordingWorker(str(filename), width, height, fps)
-            worker.FrameForRecording.connect(self.handle_frame_for_recording)
-            self.recording_worker.start()
-            
-            widget.set_recording_state(True)
-            self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
-            print(f"Ръчен запис стартиран: {filename}")
-        else:
-            if self.recording_worker:
-                try:
-                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
-                except (TypeError, RuntimeError):
-                    pass
-                self.recording_worker.stop()
-                self.recording_worker.wait()
-                self.recording_worker = None
-                if widget: widget.set_recording_state(False)
-                print("Ръчен запис спрян.")
-    
-    #
-    # --- НЯМА ДРУГИ ПРОМЕНИ В ОСТАНАЛАТА ЧАСТ ОТ ФАЙЛА ---
-    #
     def create_nav_button(self, text, relative_icon_path):
         button = QPushButton(text)
         button.setObjectName("NavButton")
-        button.setCheckable(True)
-        button.setAutoExclusive(True)
+        if "logout" not in relative_icon_path:
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+        
         full_icon_path = self.base_dir / relative_icon_path
         if full_icon_path.exists():
             button.setIcon(QIcon(str(full_icon_path)))
@@ -177,12 +108,47 @@ class MainWindow(QMainWindow):
              self.stop_all_streams()
 
         if page_name not in self.created_pages:
+            page = None
             if page_name == "live_view":
-                self.created_pages[page_name] = self._create_live_view_page()
+                page = LiveViewPage()
+                page.page_name = page_name
+                page.snapshot_button.clicked.connect(self.take_snapshot)
+                page.record_button.toggled.connect(self.toggle_manual_recording)
+                page.grid_1x1_button.clicked.connect(self.update_grid_layout)
+                page.grid_2x2_button.clicked.connect(self.update_grid_layout)
+                page.grid_3x3_button.clicked.connect(self.update_grid_layout)
+                page.camera_selector.currentIndexChanged.connect(self.update_grid_layout)
             elif page_name == "cameras":
-                self.created_pages[page_name] = self._create_cameras_page()
-            self.pages.addWidget(self.created_pages[page_name])
+                page = CamerasPage()
+                page.page_name = page_name
+                page.add_button.clicked.connect(self.add_camera)
+                page.edit_button.clicked.connect(self.edit_camera)
+                page.delete_button.clicked.connect(self.delete_camera)
+                page.scan_button.clicked.connect(self.scan_network)
+                if self.user_role != "Administrator":
+                    page.add_button.hide()
+                    page.edit_button.hide()
+                    page.delete_button.hide()
+                    page.scan_button.hide()
+                    page.search_input.hide()
+            elif page_name == "recordings":
+                page = RecordingsPage()
+                page.page_name = page_name
+            elif page_name == "settings":
+                page = SettingsPage()
+                page.page_name = page_name
+                page.save_button.clicked.connect(self.save_settings)
+            elif page_name == "users":
+                page = UsersPage()
+                page.page_name = page_name
+                page.add_button.clicked.connect(self.add_user)
+                page.edit_button.clicked.connect(self.edit_user)
+                page.delete_button.clicked.connect(self.delete_user)
 
+            if page:
+                self.created_pages[page_name] = page
+                self.pages.addWidget(page)
+        
         self.pages.setCurrentWidget(self.created_pages[page_name])
         
         if page_name == "live_view":
@@ -196,29 +162,37 @@ class MainWindow(QMainWindow):
         elif page_name == "users":
             self.refresh_users_view()
 
-    def _create_cameras_page(self):
-        page = CamerasPage()
-        page.page_name = "cameras"
-        page.add_button.clicked.connect(self.add_camera)
-        page.edit_button.clicked.connect(self.edit_camera)
-        page.delete_button.clicked.connect(self.delete_camera)
-        page.scan_button.clicked.connect(self.scan_network)
-
-        if self.user_role != "Administrator":
-            page.add_button.hide()
-            page.edit_button.hide()
-            page.delete_button.hide()
-            page.scan_button.hide()
-            page.search_input.hide()
-        return page
+    def show_live_view_page(self):
+        self.switch_to_page("live_view")
 
     def show_cameras_page(self):
-        page_name = "cameras"
-        if page_name not in self.created_pages:
-            self.created_pages[page_name] = self._create_cameras_page()
-            self.pages.addWidget(self.created_pages[page_name])
-        self.switch_to_page(page_name)
+        self.switch_to_page("cameras")
 
+    def show_recordings_page(self):
+        self.switch_to_page("recordings")
+    
+    def show_settings_page(self):
+        self.switch_to_page("settings")
+        
+    def show_users_page(self):
+        if self.user_role == "Administrator":
+            self.switch_to_page("users")
+
+    def setup_recordings_page(self):
+        page = self.created_pages.get("recordings")
+        if not page or hasattr(page, 'is_setup'): return
+        
+        page.view_button.clicked.connect(self.view_event)
+        page.delete_button.clicked.connect(self.delete_event)
+        page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
+        page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
+        
+        if self.user_role != "Administrator":
+            page.delete_button.hide()
+
+        self.refresh_recordings_view()
+        page.is_setup = True
+        
     def scan_network(self):
         subnet = get_local_subnet()
         if not subnet:
@@ -275,73 +249,7 @@ class MainWindow(QMainWindow):
             self.scanner_thread.wait()
             self.scanner_thread = None
             self.scanner = None
-
-    def show_live_view_page(self):
-        page_name = "live_view"
-        if page_name not in self.created_pages:
-            page = LiveViewPage()
-            page.page_name = page_name
-            page.snapshot_button.clicked.connect(self.take_snapshot)
-            page.record_button.toggled.connect(self.toggle_manual_recording)
-            page.grid_1x1_button.clicked.connect(self.update_grid_layout)
-            page.grid_2x2_button.clicked.connect(self.update_grid_layout)
-            page.grid_3x3_button.clicked.connect(self.update_grid_layout)
-            page.camera_selector.currentIndexChanged.connect(self.update_grid_layout)
-            self.created_pages[page_name] = page
-            self.pages.addWidget(page)
-        self.switch_to_page(page_name)
-
-    def show_recordings_page(self):
-        page_name = "recordings"
-        if page_name not in self.created_pages:
-            page = RecordingsPage()
-            page.page_name = page_name
-            self.created_pages[page_name] = page
-            self.pages.addWidget(page)
-        self.switch_to_page(page_name)
-    
-    def setup_recordings_page(self):
-        page = self.created_pages.get("recordings")
-        if not page or hasattr(page, 'is_setup'): return
-        
-        page.view_button.clicked.connect(self.view_event)
-        page.delete_button.clicked.connect(self.delete_event)
-        page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
-        page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
-        
-        if self.user_role != "Administrator":
-            page.delete_button.hide()
-
-        self.refresh_recordings_view()
-        page.is_setup = True
-
-    def show_settings_page(self):
-        page_name = "settings"
-        if page_name not in self.created_pages:
-            page = SettingsPage()
-            page.page_name = page_name
-            page.save_button.clicked.connect(self.save_settings)
-            self.created_pages[page_name] = page
-            self.pages.addWidget(page)
-        
-        self.created_pages[page_name].setEnabled(self.user_role == "Administrator")
-        self.switch_to_page(page_name)
-        
-    def show_users_page(self):
-        page_name = "users"
-        if self.user_role != "Administrator": return
-
-        if page_name not in self.created_pages:
-            page = UsersPage()
-            page.page_name = page_name
-            page.add_button.clicked.connect(self.add_user)
-            page.edit_button.clicked.connect(self.edit_user)
-            page.delete_button.clicked.connect(self.delete_user)
-            self.created_pages[page_name] = page
-            self.pages.addWidget(page)
-        
-        self.switch_to_page(page_name)
-
+            
     def load_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
@@ -384,6 +292,24 @@ class MainWindow(QMainWindow):
             self.start_single_worker(cam_data, frame_widget)
             self.active_video_widgets[cam_id] = frame_widget
         self.update_grid_layout()
+
+    def start_single_worker(self, cam_data, frame_widget):
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        
+        cam_id = cam_data.get("id")
+        worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
+        worker.ImageUpdate.connect(frame_widget.update_frame)
+        worker.StreamStatus.connect(frame_widget.update_status)
+        worker.MotionDetected.connect(self.on_motion_detected)
+        worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
+        worker.ActualFPSEstimated.connect(self.update_measured_fps)
+        
+        worker.start()
+        self.video_workers[cam_id] = worker
+
+    def update_measured_fps(self, camera_id, fps):
+        self.measured_fps[camera_id] = fps
 
     def handle_worker_finished(self, cam_id):
         print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
@@ -705,6 +631,52 @@ class MainWindow(QMainWindow):
                 cv2.imwrite(str(filename), frame)
                 print(f"Снимка запазена: {filename}")
                 self.add_event(worker.camera_data['id'], "Снимка", str(filename))
+
+    def toggle_manual_recording(self, is_recording):
+        page = self.created_pages.get("live_view")
+        if not page: return
+
+        worker, widget = self.get_camera_to_control()
+        if not worker or not widget: 
+            page.record_button.setChecked(False)
+            return
+
+        if is_recording:
+            if self.recording_worker: return
+            settings = DataManager.load_settings()
+            recording_path = Path(settings.get("recording_path"))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
+            
+            frame = worker.get_latest_frame()
+            if frame is None:
+                page.record_button.setChecked(False)
+                return
+            height, width, _ = frame.shape
+            
+            cam_id = worker.camera_data.get("id")
+            fps = self.measured_fps.get(cam_id, 15.0)
+
+            print(f"Starting recording for {cam_id} with measured FPS: {fps:.2f}")
+
+            self.recording_worker = RecordingWorker(str(filename), width, height, fps)
+            worker.FrameForRecording.connect(self.handle_frame_for_recording)
+            self.recording_worker.start()
+            
+            widget.set_recording_state(True)
+            self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
+            print(f"Ръчен запис стартиран: {filename}")
+        else:
+            if self.recording_worker:
+                try:
+                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                except (TypeError, RuntimeError):
+                    pass
+                self.recording_worker.stop()
+                self.recording_worker.wait()
+                self.recording_worker = None
+                if widget: widget.set_recording_state(False)
+                print("Ръчен запис спрян.")
 
     def handle_frame_for_recording(self, frame):
         if self.recording_worker and self.recording_worker.isRunning():

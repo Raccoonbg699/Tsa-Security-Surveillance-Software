@@ -27,8 +27,19 @@ class ApplicationController:
         """Показва главния прозорец след успешен вход."""
         print(f"Потребител с роля '{user_role}' влезе в системата.")
         self.main_window = MainWindow(base_dir=BASE_DIR, user_role=user_role)
+        # --- ПРОМЯНА: Свързваме сигнала за изход към новия метод ---
+        self.main_window.logout_requested.connect(self.handle_logout)
         self.main_window.show()
 
+    # --- ПРОМЯНА: Нов метод за излизане от системата ---
+    def handle_logout(self):
+        """Затваря главния прозорец и показва отново екрана за вход."""
+        if self.main_window:
+            self.main_window.close()
+            self.main_window = None
+        
+        # Показваме отново прозореца за вход
+        self.start()
 
 def main():
     """Основна функция за стартиране на приложението."""
@@ -36,8 +47,6 @@ def main():
     
     style_file = BASE_DIR / "style.qss"
     try:
-        # --- ТУК Е КЛЮЧОВАТА ПРОМЯНА ---
-        # Изрично казваме на програмата да чете файла с UTF-8 кодировка
         with open(style_file, "r", encoding="utf-8") as f:
             app.setStyleSheet(f.read())
     except FileNotFoundError:
