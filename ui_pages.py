@@ -5,15 +5,22 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+# --- ПРОМЯНА: Импортираме преводача ---
+from data_manager import get_translator
+
 class CamerasPage(QWidget):
     """Страница за управление на камери."""
     def __init__(self):
         super().__init__()
+        # --- ПРОМЯНА: Взимаме инстанция на преводача ---
+        translator = get_translator()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        title = QLabel("Управление на камери")
+        # --- ПРОМЯНА: Всички текстове се превеждат ---
+        title = QLabel(translator.get_string("page_cameras_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
@@ -21,12 +28,12 @@ class CamerasPage(QWidget):
 
         controls_layout = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Търсене...")
+        self.search_input.setPlaceholderText(translator.get_string("search_placeholder"))
         
-        self.add_button = QPushButton("Добави")
-        self.edit_button = QPushButton("Редактирай")
-        self.delete_button = QPushButton("Изтрий")
-        self.scan_button = QPushButton("Сканирай")
+        self.add_button = QPushButton(translator.get_string("add_button"))
+        self.edit_button = QPushButton(translator.get_string("edit_button"))
+        self.delete_button = QPushButton(translator.get_string("delete_button"))
+        self.scan_button = QPushButton(translator.get_string("scan_button"))
         
         self.edit_button.setEnabled(False)
         self.delete_button.setEnabled(False)
@@ -39,7 +46,6 @@ class CamerasPage(QWidget):
         controls_layout.addWidget(self.delete_button)
 
         self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("QListWidget::item { padding: 8px; }")
         self.list_widget.setAlternatingRowColors(True)
 
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
@@ -57,6 +63,7 @@ class LiveViewPage(QWidget):
     """Страница за изглед на живо."""
     def __init__(self):
         super().__init__()
+        translator = get_translator()
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
@@ -64,7 +71,7 @@ class LiveViewPage(QWidget):
         top_layout = QHBoxLayout()
         top_layout.setContentsMargins(0, 0, 0, 0)
         
-        title = QLabel("Изглед на живо")
+        title = QLabel(translator.get_string("page_live_view_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
@@ -99,8 +106,8 @@ class LiveViewPage(QWidget):
         self.grid_layout.setSpacing(5)
 
         bottom_controls = QHBoxLayout()
-        self.snapshot_button = QPushButton("Снимка")
-        self.record_button = QPushButton("Запис")
+        self.snapshot_button = QPushButton(translator.get_string("snapshot_button"))
+        self.record_button = QPushButton(translator.get_string("record_button"))
         self.record_button.setCheckable(True)
         bottom_controls.addStretch()
         bottom_controls.addWidget(self.snapshot_button)
@@ -114,20 +121,21 @@ class RecordingsPage(QWidget):
     """Страница за преглед на записи."""
     def __init__(self):
         super().__init__()
+        translator = get_translator()
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
         top_layout = QHBoxLayout()
-        title = QLabel("Преглед на записи")
+        title = QLabel(translator.get_string("page_recordings_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
         
-        self.view_button = QPushButton("Преглед на запис")
-        self.delete_button = QPushButton("Изтрий запис")
+        self.view_button = QPushButton(translator.get_string("view_recording_button"))
+        self.delete_button = QPushButton(translator.get_string("delete_recording_button"))
         self.view_button.setEnabled(False)
         self.delete_button.setEnabled(False)
 
@@ -137,7 +145,7 @@ class RecordingsPage(QWidget):
         top_layout.addWidget(self.delete_button)
 
         filters_layout = QHBoxLayout()
-        filters_layout.addWidget(QLabel("Филтри:"))
+        filters_layout.addWidget(QLabel(translator.get_string("filters_label")))
         self.camera_filter = QComboBox()
         self.event_type_filter = QComboBox()
         filters_layout.addWidget(self.camera_filter)
@@ -145,7 +153,6 @@ class RecordingsPage(QWidget):
         filters_layout.addStretch()
 
         self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("QListWidget::item { padding: 8px; }")
         self.list_widget.setAlternatingRowColors(True)
         
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
@@ -163,12 +170,13 @@ class SettingsPage(QWidget):
     """Страница за настройки на приложението."""
     def __init__(self):
         super().__init__()
+        translator = get_translator()
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
         
-        title = QLabel("Настройки")
+        title = QLabel(translator.get_string("page_settings_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
@@ -180,10 +188,15 @@ class SettingsPage(QWidget):
         form_layout.setSpacing(15)
 
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["Тъмна", "Светла"])
+        self.theme_combo.addItems([translator.get_string("dark_theme"), translator.get_string("light_theme")])
         
         self.grid_combo = QComboBox()
         self.grid_combo.addItems(["1x1", "2x2", "3x3"])
+        
+        # --- ПРОМЯНА: Добавяме падащо меню за език ---
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItem("Български", "bg")
+        self.lang_combo.addItem("English", "en")
 
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
@@ -194,11 +207,12 @@ class SettingsPage(QWidget):
         path_layout.addWidget(self.path_edit, 1)
         path_layout.addWidget(browse_button)
 
-        form_layout.addRow("Тема на приложението:", self.theme_combo)
-        form_layout.addRow("Изглед по подразбиране:", self.grid_combo)
-        form_layout.addRow("Папка за записи:", path_layout)
+        form_layout.addRow(translator.get_string("app_theme_label"), self.theme_combo)
+        form_layout.addRow(translator.get_string("default_view_label"), self.grid_combo)
+        form_layout.addRow(translator.get_string("language_label"), self.lang_combo)
+        form_layout.addRow(translator.get_string("recordings_folder_label"), path_layout)
         
-        self.save_button = QPushButton("Запази промените")
+        self.save_button = QPushButton(translator.get_string("save_changes_button"))
         self.save_button.setObjectName("AccentButton")
 
         layout.addWidget(title)
@@ -215,20 +229,21 @@ class UsersPage(QWidget):
     """Страница за управление на потребители."""
     def __init__(self):
         super().__init__()
+        translator = get_translator()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        title = QLabel("Управление на потребители")
+        title = QLabel(translator.get_string("page_users_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
 
         buttons_layout = QHBoxLayout()
-        self.add_button = QPushButton("Добави потребител")
-        self.edit_button = QPushButton("Редактирай")
-        self.delete_button = QPushButton("Изтрий")
+        self.add_button = QPushButton(translator.get_string("add_user_button"))
+        self.edit_button = QPushButton(translator.get_string("edit_button"))
+        self.delete_button = QPushButton(translator.get_string("delete_button"))
         self.edit_button.setEnabled(False)
         self.delete_button.setEnabled(False)
         buttons_layout.addStretch()
@@ -237,7 +252,6 @@ class UsersPage(QWidget):
         buttons_layout.addWidget(self.delete_button)
 
         self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("QListWidget::item { padding: 8px; }")
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
 

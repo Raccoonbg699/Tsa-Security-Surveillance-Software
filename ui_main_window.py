@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon
 
-from data_manager import DataManager
+# --- ПРОМЯНА: Връщаме импортирането на преводача ---
+from data_manager import DataManager, get_translator
 from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage, UsersPage
 from ui_dialogs import CameraDialog, UserDialog
 from video_worker import VideoWorker, RecordingWorker
@@ -21,12 +22,15 @@ from network_scanner import NetworkScanner, get_local_subnet
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
+    restart_requested = Signal()
 
     def __init__(self, base_dir, user_role):
         super().__init__()
+        self.translator = get_translator()
         self.base_dir = base_dir
         self.user_role = user_role
-        self.setWindowTitle("TSA-Security")
+        
+        self.setWindowTitle(self.translator.get_string("main_window_title"))
         self.setGeometry(100, 100, 1280, 720)
 
         self.video_workers = {}
@@ -56,12 +60,12 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(sidebar)
         main_layout.addWidget(self.pages)
         
-        btn_live_view = self.create_nav_button("Изглед на живо", "icons/video-camera.png")
-        btn_cameras = self.create_nav_button("Камери", "icons/camera.png")
-        btn_recordings = self.create_nav_button("Записи", "icons/archive.png")
-        self.btn_users = self.create_nav_button("Потребители", "icons/user.png")
-        btn_settings = self.create_nav_button("Настройки", "icons/gear.png")
-        btn_logout = self.create_nav_button("Изход", "icons/logout.png")
+        btn_live_view = self.create_nav_button(self.translator.get_string("live_view"), "icons/video-camera.png")
+        btn_cameras = self.create_nav_button(self.translator.get_string("cameras"), "icons/camera.png")
+        btn_recordings = self.create_nav_button(self.translator.get_string("recordings"), "icons/archive.png")
+        self.btn_users = self.create_nav_button(self.translator.get_string("users"), "icons/user.png")
+        btn_settings = self.create_nav_button(self.translator.get_string("settings"), "icons/gear.png")
+        btn_logout = self.create_nav_button(self.translator.get_string("logout"), "icons/logout.png")
 
         sidebar_layout.addWidget(btn_live_view)
         sidebar_layout.addWidget(btn_cameras)
@@ -98,6 +102,7 @@ class MainWindow(QMainWindow):
         button.setIconSize(QSize(24, 24))
         return button
     
+    # --- КОРЕКЦИЯ: Връщаме липсващия метод ---
     def apply_role_permissions(self):
         is_admin = self.user_role == "Administrator"
         self.btn_users.setVisible(is_admin)
@@ -125,7 +130,6 @@ class MainWindow(QMainWindow):
                 page.edit_button.clicked.connect(self.edit_camera)
                 page.delete_button.clicked.connect(self.delete_camera)
                 page.scan_button.clicked.connect(self.scan_network)
-                # --- ПРОМЯНА: Свързваме сигнала за промяна на текста към новия метод ---
                 page.search_input.textChanged.connect(self.filter_cameras_list)
                 if self.user_role != "Administrator":
                     page.add_button.hide()
@@ -164,22 +168,16 @@ class MainWindow(QMainWindow):
         elif page_name == "users":
             self.refresh_users_view()
 
-    # --- ПРОМЯНА: Нов метод за филтриране на списъка с камери ---
     def filter_cameras_list(self):
-        """Филтрира видимостта на камерите в списъка според текста в търсачката."""
         page = self.created_pages.get("cameras")
         if not page:
             return
-        
         search_text = page.search_input.text().lower()
-        
         for i in range(page.list_widget.count()):
             item = page.list_widget.item(i)
             item_text = item.text().lower()
-            # Ако текстът за търсене се съдържа в текста на елемента, го показваме
             if search_text in item_text:
                 item.setHidden(False)
-            # В противен случай го скриваме
             else:
                 item.setHidden(True)
 
@@ -275,9 +273,15 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("settings")
         if not page: return
         settings_data = DataManager.load_settings()
-        page.theme_combo.setCurrentText("Тъмна" if settings_data.get("theme") == "dark" else "Светла")
+        
+        page.theme_combo.setCurrentText(self.translator.get_string("dark_theme") if settings_data.get("theme") == "dark" else self.translator.get_string("light_theme"))
         page.grid_combo.setCurrentText(settings_data.get("default_grid", "2x2"))
         page.path_edit.setText(settings_data.get("recording_path", ""))
+        
+        lang_code = settings_data.get("language", "bg")
+        index = page.lang_combo.findData(lang_code)
+        if index != -1:
+            page.lang_combo.setCurrentIndex(index)
 
     def apply_theme(self, theme_name):
         style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
@@ -293,39 +297,42 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("settings")
         if not page: return
         
-        new_theme = "dark" if page.theme_combo.currentText() == "Тъмна" else "light"
+        current_settings = DataManager.load_settings()
+        old_lang = current_settings.get("language")
+
+        new_theme = "dark" if page.theme_combo.currentText() == self.translator.get_string("dark_theme") else "light"
+        new_lang = page.lang_combo.currentData()
         
         new_settings = {
             "theme": new_theme,
             "default_grid": page.grid_combo.currentText(),
-            "recording_path": page.path_edit.text()
+            "recording_path": page.path_edit.text(),
+            "language": new_lang
         }
         DataManager.save_settings(new_settings)
         
         self.apply_theme(new_theme)
         
-        QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
+        if old_lang != new_lang:
+            self.restart_requested.emit()
+        else:
+            QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):
         if self.video_workers: return
         page = self.created_pages.get("live_view")
         if not page: return
-
         page.camera_selector.clear()
-        
         settings = DataManager.load_settings()
         recording_path = Path(settings.get("recording_path"))
         recording_path.mkdir(parents=True, exist_ok=True)
-        
         cameras_data = DataManager.load_cameras()
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
-        
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
             page.camera_selector.addItem(cam_data["name"], cam_id)
             frame_widget = VideoFrame(camera_name=cam_data.get("name"), camera_id=cam_id)
             frame_widget.double_clicked.connect(self.toggle_fullscreen_camera)
-            
             self.start_single_worker(cam_data, frame_widget)
             self.active_video_widgets[cam_id] = frame_widget
         self.update_grid_layout()
@@ -333,7 +340,6 @@ class MainWindow(QMainWindow):
     def start_single_worker(self, cam_data, frame_widget):
         settings = DataManager.load_settings()
         recording_path = Path(settings.get("recording_path"))
-        
         cam_id = cam_data.get("id")
         worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
         worker.ImageUpdate.connect(frame_widget.update_frame)
@@ -341,7 +347,6 @@ class MainWindow(QMainWindow):
         worker.MotionDetected.connect(self.on_motion_detected)
         worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
         worker.ActualFPSEstimated.connect(self.update_measured_fps)
-        
         worker.start()
         self.video_workers[cam_id] = worker
 
@@ -352,11 +357,9 @@ class MainWindow(QMainWindow):
         print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
         if cam_id in self.video_workers:
             self.video_workers.pop(cam_id, None)
-            
             cameras_data = DataManager.load_cameras()
             cam_data = next((c for c in cameras_data if c.get("id") == cam_id), None)
             frame_widget = self.active_video_widgets.get(cam_id)
-            
             if cam_data and frame_widget:
                 QTimer.singleShot(5000, lambda: self.start_single_worker(cam_data, frame_widget))
 
@@ -364,14 +367,11 @@ class MainWindow(QMainWindow):
         if self.recording_worker:
             worker, _ = self.get_camera_to_control()
             if worker:
-                try:
-                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
-                except (TypeError, RuntimeError):
-                    pass
+                try: worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                except (TypeError, RuntimeError): pass
             self.recording_worker.stop()
             self.recording_worker.wait()
             self.recording_worker = None
-
         if not self.video_workers: return
         for worker in self.video_workers.values():
             worker.stop()
@@ -387,8 +387,8 @@ class MainWindow(QMainWindow):
         page.list_widget.clear()
         cameras_data = DataManager.load_cameras()
         for cam in cameras_data:
-            status = "Активна" if cam.get('is_active') else "Неактивна"
-            motion = "Детекция ВКЛ" if cam.get('motion_enabled') else "Детекция ИЗКЛ"
+            status = self.translator.get_string("camera_status_active") if cam.get('is_active') else self.translator.get_string("camera_status_inactive")
+            motion = self.translator.get_string("motion_detection_on") if cam.get('motion_enabled') else self.translator.get_string("motion_detection_off")
             item_text = f"{cam['name']} - {status} - {motion}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, cam)
@@ -404,8 +404,8 @@ class MainWindow(QMainWindow):
         page.event_type_filter.blockSignals(True)
         page.camera_filter.clear()
         page.event_type_filter.clear()
-        page.camera_filter.addItem("Всички камери")
-        page.event_type_filter.addItem("Всички типове")
+        page.camera_filter.addItem(self.translator.get_string("all_cameras_filter"))
+        page.event_type_filter.addItem(self.translator.get_string("all_types_filter"))
         page.camera_filter.addItems(cameras)
         page.event_type_filter.addItems(event_types)
         page.camera_filter.blockSignals(False)
@@ -415,15 +415,12 @@ class MainWindow(QMainWindow):
     def apply_event_filters(self):
         page = self.created_pages.get("recordings")
         if not page: return
-        
         cam_filter = page.camera_filter.currentText()
         type_filter = page.event_type_filter.currentText()
-        if "Всички" in cam_filter: cam_filter = ""
-        if "Всички" in type_filter: type_filter = ""
-        
+        if cam_filter == self.translator.get_string("all_cameras_filter"): cam_filter = ""
+        if type_filter == self.translator.get_string("all_types_filter"): type_filter = ""
         page.list_widget.clear()
         all_events = DataManager.load_events()
-
         for event in all_events:
             cam_match = cam_filter == "" or cam_filter == event.get("camera_name")
             type_match = type_filter == "" or type_filter == event.get("event_type")
@@ -440,11 +437,9 @@ class MainWindow(QMainWindow):
         if not selected_items: return
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path = event_data.get("file_path")
-
         if not file_path or not os.path.exists(file_path):
             QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
             return
-        
         if sys.platform == "win32": os.startfile(file_path)
         elif sys.platform == "darwin": subprocess.Popen(["open", file_path])
         else: subprocess.Popen(["xdg-open", file_path])
@@ -454,11 +449,8 @@ class MainWindow(QMainWindow):
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
-
         event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        reply = QMessageBox.question(self, "Потвърждение", "Сигурни ли сте?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
+        reply = QMessageBox.question(self, "Потвърждение", "Сигурни ли сте?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             all_events = DataManager.load_events()
             updated_events = [e for e in all_events if e.get("event_id") != event_to_delete.get("event_id")]
@@ -482,7 +474,6 @@ class MainWindow(QMainWindow):
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
         camera_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        
         dialog = CameraDialog(camera_data=camera_to_edit, parent=self)
         if dialog.exec():
             updated_data = dialog.get_data()
@@ -501,9 +492,7 @@ class MainWindow(QMainWindow):
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
         camera_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
-
-        reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{camera_to_delete['name']}'?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{camera_to_delete['name']}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             cameras_data = DataManager.load_cameras()
             updated_cameras = [c for c in cameras_data if c.get("id") != camera_to_delete.get("id")]
@@ -542,7 +531,6 @@ class MainWindow(QMainWindow):
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
         user_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        
         dialog = UserDialog(user_data=user_to_edit, parent=self)
         if dialog.exec():
             updated_data = dialog.get_data()
@@ -563,14 +551,10 @@ class MainWindow(QMainWindow):
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
         user_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        
         if user_to_delete['username'] == 'admin':
             QMessageBox.warning(self, "Грешка", "Администраторският акаунт не може да бъде изтрит.")
             return
-
-        reply = QMessageBox.question(self, "Потвърждение", f"Сигурни ли сте, че искате да изтриете '{user_to_delete['username']}'?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
+        reply = QMessageBox.question(self, "Потвърждение", f"Сигурни ли сте, че искате да изтриете '{user_to_delete['username']}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             users = DataManager.load_users()
             users = [u for u in users if u['username'] != user_to_delete['username']]
@@ -579,21 +563,17 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.stop_all_streams()
-        if self.scanner:
-            self.scanner.cancel()
+        if self.scanner: self.scanner.cancel()
         event.accept()
     
     def update_grid_layout(self):
         page = self.created_pages.get("live_view")
         if not page: return
-        
         for widget in self.active_video_widgets.values():
             widget.hide()
             widget.setParent(None)
-
         all_widgets = list(self.active_video_widgets.values())
         widgets_to_show = []
-        
         if page.grid_1x1_button.isChecked():
             page.camera_selector.show()
             selected_cam_id = page.camera_selector.currentData()
@@ -605,9 +585,7 @@ class MainWindow(QMainWindow):
             cols = 2 if page.grid_2x2_button.isChecked() else 3
             limit = 4 if page.grid_2x2_button.isChecked() else 9
             widgets_to_show = all_widgets[:limit]
-
         if not widgets_to_show: return
-
         for idx, widget in enumerate(widgets_to_show):
             row, col = idx // cols, idx % cols
             page.grid_layout.addWidget(widget, row, col)
@@ -618,7 +596,6 @@ class MainWindow(QMainWindow):
         is_fullscreen = sender_widget.property("fullscreen")
         page = self.created_pages.get("live_view")
         if not page: return
-
         if is_fullscreen:
             for widget in self.active_video_widgets.values():
                 widget.setProperty("fullscreen", False)
@@ -651,7 +628,6 @@ class MainWindow(QMainWindow):
                     if widget and widget.isVisible():
                         cam_id = widget.camera_id
                         break
-        
         if cam_id:
             return self.video_workers.get(cam_id), self.active_video_widgets.get(cam_id)
         return None, None
@@ -672,43 +648,36 @@ class MainWindow(QMainWindow):
     def toggle_manual_recording(self, is_recording):
         page = self.created_pages.get("live_view")
         if not page: return
-
         worker, widget = self.get_camera_to_control()
         if not worker or not widget: 
             page.record_button.setChecked(False)
             return
-
         if is_recording:
+            page.record_button.setText(self.translator.get_string("stop_record_button"))
             if self.recording_worker: return
             settings = DataManager.load_settings()
             recording_path = Path(settings.get("recording_path"))
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
-            
             frame = worker.get_latest_frame()
             if frame is None:
                 page.record_button.setChecked(False)
                 return
             height, width, _ = frame.shape
-            
             cam_id = worker.camera_data.get("id")
             fps = self.measured_fps.get(cam_id, 15.0)
-
             print(f"Starting recording for {cam_id} with measured FPS: {fps:.2f}")
-
             self.recording_worker = RecordingWorker(str(filename), width, height, fps)
             worker.FrameForRecording.connect(self.handle_frame_for_recording)
             self.recording_worker.start()
-            
             widget.set_recording_state(True)
             self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
             print(f"Ръчен запис стартиран: {filename}")
         else:
+            page.record_button.setText(self.translator.get_string("record_button"))
             if self.recording_worker:
-                try:
-                    worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
-                except (TypeError, RuntimeError):
-                    pass
+                try: worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                except (TypeError, RuntimeError): pass
                 self.recording_worker.stop()
                 self.recording_worker.wait()
                 self.recording_worker = None
@@ -726,15 +695,7 @@ class MainWindow(QMainWindow):
             if cam.get("id") == camera_id:
                 camera_name = cam.get("name")
                 break
-        
-        new_event = {
-            "event_id": str(uuid.uuid4()),
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "camera_name": camera_name,
-            "event_type": event_type,
-            "file_path": file_path
-        }
-        
+        new_event = { "event_id": str(uuid.uuid4()), "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "camera_name": camera_name, "event_type": event_type, "file_path": str(file_path) }
         all_events = DataManager.load_events()
         all_events.insert(0, new_event)
         DataManager.save_events(all_events)

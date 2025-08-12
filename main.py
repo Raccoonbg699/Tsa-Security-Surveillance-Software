@@ -7,7 +7,8 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 from ui_login_window import LoginWindow
 from ui_main_window import MainWindow
-from data_manager import DataManager
+# --- ПРОМЯНА: Импортираме DataManager и get_translator ---
+from data_manager import DataManager, get_translator
 
 BASE_DIR = Path(__file__).parent
 
@@ -20,8 +21,15 @@ class ApplicationController:
 
     def start(self):
         """Показва прозореца за вход."""
+        # --- ПРОМЯНА: Презареждаме преводите всеки път ---
+        translator = get_translator()
+        settings = DataManager.load_settings()
+        translator.set_language(settings.get("language", "bg"))
+
         self.login_window = LoginWindow()
         self.login_window.login_successful.connect(self.show_main_window)
+        # Свързваме новия сигнал за рестарт
+        self.login_window.restart_requested.connect(self.restart)
         self.login_window.show()
 
     def show_main_window(self, user_role):
@@ -29,6 +37,8 @@ class ApplicationController:
         print(f"Потребител с роля '{user_role}' влезе в системата.")
         self.main_window = MainWindow(base_dir=BASE_DIR, user_role=user_role)
         self.main_window.logout_requested.connect(self.handle_logout)
+        # Свързваме сигнала за рестарт и от главния прозорец
+        self.main_window.restart_requested.connect(self.restart)
         self.main_window.show()
 
     def handle_logout(self):
@@ -36,17 +46,32 @@ class ApplicationController:
         if self.main_window:
             self.main_window.close()
             self.main_window = None
-        
         self.start()
+        
+    def restart(self):
+        """Затваря всички прозорци и стартира приложението отначало."""
+        print("Рестартиране на приложението за смяна на език...")
+        if self.login_window:
+            self.login_window.close()
+            self.login_window = None
+        if self.main_window:
+            self.main_window.close()
+            self.main_window = None
+        self.start()
+
 
 def main():
     """Основна функция за стартиране на приложението."""
     app = QApplication(sys.argv)
     
+    # --- ПРОМЯНА: Инициализираме преводача веднъж в началото ---
+    translator = get_translator()
+    translator.load_translations() # Зареждаме файла translations.json
+    
+    # Зареждаме правилния стил при стартиране
     try:
         settings = DataManager.load_settings()
         theme = settings.get("theme", "dark")
-        
         style_file_name = "style.qss" if theme == "dark" else "style_light.qss"
         style_file = BASE_DIR / style_file_name
         
