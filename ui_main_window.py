@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
                 page.edit_button.clicked.connect(self.edit_camera)
                 page.delete_button.clicked.connect(self.delete_camera)
                 page.scan_button.clicked.connect(self.scan_network)
+                # --- ПРОМЯНА: Свързваме сигнала за промяна на текста към новия метод ---
+                page.search_input.textChanged.connect(self.filter_cameras_list)
                 if self.user_role != "Administrator":
                     page.add_button.hide()
                     page.edit_button.hide()
@@ -161,6 +163,25 @@ class MainWindow(QMainWindow):
             self.load_settings()
         elif page_name == "users":
             self.refresh_users_view()
+
+    # --- ПРОМЯНА: Нов метод за филтриране на списъка с камери ---
+    def filter_cameras_list(self):
+        """Филтрира видимостта на камерите в списъка според текста в търсачката."""
+        page = self.created_pages.get("cameras")
+        if not page:
+            return
+        
+        search_text = page.search_input.text().lower()
+        
+        for i in range(page.list_widget.count()):
+            item = page.list_widget.item(i)
+            item_text = item.text().lower()
+            # Ако текстът за търсене се съдържа в текста на елемента, го показваме
+            if search_text in item_text:
+                item.setHidden(False)
+            # В противен случай го скриваме
+            else:
+                item.setHidden(True)
 
     def show_live_view_page(self):
         self.switch_to_page("live_view")
@@ -259,7 +280,6 @@ class MainWindow(QMainWindow):
         page.path_edit.setText(settings_data.get("recording_path", ""))
 
     def apply_theme(self, theme_name):
-        """Зарежда и прилага QSS файл към цялото приложение."""
         style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
         style_file = self.base_dir / style_file_name
         try:
