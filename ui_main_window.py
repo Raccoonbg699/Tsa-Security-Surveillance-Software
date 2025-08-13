@@ -198,14 +198,11 @@ class MainWindow(QMainWindow):
         self.switch_to_page("settings")
         page = self.created_pages.get("settings")
         if not page: return
-        
         is_admin = (self.user_role == "Administrator")
-        
         page.path_edit.setVisible(is_admin)
         page.browse_button.setVisible(is_admin)
         page.recording_structure_combo.setVisible(is_admin)
         page.save_button.setVisible(is_admin)
-
         form_layout = page.layout().itemAt(1)
         for i in range(form_layout.rowCount()):
             label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
@@ -957,4 +954,3 @@ class MainWindow(QMainWindow):
         print(f"Ще се свържем към: {system_data['name']} на IP: {system_data['ip']}")
         # Тук в следващите стъпки ще добавим сложната логика за превключване
         # на цялото приложение в отдалечен режим.
-        #това е последната работеща версия на този файл искам да добавиш промените към този код
