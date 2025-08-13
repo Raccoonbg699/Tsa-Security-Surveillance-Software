@@ -6,10 +6,9 @@ DATA_DIR = Path(__file__).parent / "data"
 class Translator:
     def __init__(self):
         self.translations = {}
-        self.language = "bg"  # Език по подразбиране
+        self.language = "bg"
 
     def load_translations(self):
-        """Зарежда файла с преводи от папката data."""
         translations_file = DATA_DIR / "translations.json"
         try:
             with open(translations_file, "r", encoding="utf-8") as f:
@@ -19,19 +18,16 @@ class Translator:
             self.translations = {}
 
     def set_language(self, language):
-        """Задава текущия език."""
         if language in self.translations:
             self.language = language
         else:
             print(f"Предупреждение: Език '{language}' не е намерен. Използва се '{self.language}'.")
 
     def get_string(self, key):
-        """Връща преведения низ за даден ключ."""
         return self.translations.get(self.language, {}).get(key, key)
 
 _translator_instance = None
 def get_translator():
-    """Връща единствена инстанция на преводача."""
     global _translator_instance
     if _translator_instance is None:
         _translator_instance = Translator()
@@ -104,7 +100,6 @@ class DataManager:
     def load_settings():
         DATA_DIR.mkdir(exist_ok=True)
         settings_file = DATA_DIR / "settings.json"
-
         defaults = {
             "theme": "dark",
             "default_grid": "2x2",
@@ -112,10 +107,8 @@ class DataManager:
             "language": "bg",
             "recording_structure": "single"
         }
-
         if not settings_file.exists():
             return defaults
-
         try:
             with open(settings_file, "r", encoding="utf-8") as f:
                 settings = json.load(f)
