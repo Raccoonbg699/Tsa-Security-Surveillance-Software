@@ -19,6 +19,7 @@ from video_worker import VideoWorker, RecordingWorker
 from ui_widgets import VideoFrame
 from network_scanner import NetworkScanner, get_local_subnet
 from ui_media_viewer import MediaViewerDialog
+from ui_info_dialog import InfoDialog
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
@@ -193,6 +194,7 @@ class MainWindow(QMainWindow):
         page.view_in_app_button.clicked.connect(self.view_event_in_app)
         page.open_in_player_button.clicked.connect(self.view_event_in_player)
         page.open_folder_button.clicked.connect(self.open_event_folder)
+        page.info_button.clicked.connect(self.show_event_info)
         page.delete_button.clicked.connect(self.delete_event)
         
         page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
@@ -204,49 +206,79 @@ class MainWindow(QMainWindow):
         page.is_setup = True
         
     def scan_network(self):
-        # ... (този метод остава същият)
-        pass
+        subnet = get_local_subnet()
+        if not subnet:
+            QMessageBox.warning(self, "Грешка", "Не може да се определи локалната мрежа.")
+            return
+        self.progress_dialog = QProgressDialog("Сканиране на мрежата за камери...", "Отказ", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Сканиране")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.scanner_thread = QThread()
+        self.scanner = NetworkScanner(subnet)
+        self.scanner.moveToThread(self.scanner_thread)
+        self.scanner.scan_progress.connect(self.progress_dialog.setValue)
+        self.scanner.camera_found.connect(self.add_scanned_camera)
+        self.scanner.scan_finished.connect(self.on_scan_finished)
+        self.progress_dialog.canceled.connect(self.scanner.cancel)
+        self.scanner_thread.started.connect(self.scanner.run)
+        page = self.created_pages.get("cameras")
+        if page: page.scan_button.setEnabled(False)
+        self.scanner_thread.start()
+        self.progress_dialog.show()
 
     def add_scanned_camera(self, ip_address):
-        # ... (този метод остава същият)
-        pass
+        cameras = DataManager.load_cameras()
+        if any(ip_address in cam.get('rtsp_url', '') for cam in cameras):
+            print(f"Камера с IP {ip_address} вече съществува. Пропускане.")
+            return
+        new_cam_data = { "id": str(uuid.uuid4()), "name": f"Камера @ {ip_address}", "rtsp_url": f"rtsp://{ip_address}:554/", "is_active": True, "motion_enabled": True }
+        cameras.append(new_cam_data)
+        DataManager.save_cameras(cameras)
+        self.refresh_cameras_view()
 
     def on_scan_finished(self, message):
-        # ... (този метод остава същият)
-        pass
+        QMessageBox.information(self, "Сканирането приключи", message)
+        self.progress_dialog.close()
+        page = self.created_pages.get("cameras")
+        if page: page.scan_button.setEnabled(True)
+        if self.scanner_thread:
+            self.scanner_thread.quit()
+            self.scanner_thread.wait()
+            self.scanner_thread = None
+            self.scanner = None
             
     def load_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
         settings_data = DataManager.load_settings()
-        
         page.theme_combo.setCurrentText(self.translator.get_string("dark_theme") if settings_data.get("theme") == "dark" else self.translator.get_string("light_theme"))
         page.grid_combo.setCurrentText(settings_data.get("default_grid", "2x2"))
         page.path_edit.setText(settings_data.get("recording_path", ""))
-        
         lang_code = settings_data.get("language", "bg")
         index = page.lang_combo.findData(lang_code)
         if index != -1: page.lang_combo.setCurrentIndex(index)
-
         structure_mode = settings_data.get("recording_structure", "single")
         index = page.recording_structure_combo.findData(structure_mode)
         if index != -1: page.recording_structure_combo.setCurrentIndex(index)
 
     def apply_theme(self, theme_name):
-        # ... (този метод остава същият)
-        pass
+        style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
+        style_file = self.base_dir / style_file_name
+        try:
+            with open(style_file, "r", encoding="utf-8") as f:
+                style_sheet = f.read()
+                QApplication.instance().setStyleSheet(style_sheet)
+        except FileNotFoundError:
+            print(f"Предупреждение: Файлът със стилове {style_file} не е намерен.")
 
     def save_settings(self):
         page = self.created_pages.get("settings")
         if not page: return
-        
         current_settings = DataManager.load_settings()
         old_lang = current_settings.get("language")
-
         new_theme = "dark" if page.theme_combo.currentText() == self.translator.get_string("dark_theme") else "light"
         new_lang = page.lang_combo.currentData()
         new_structure = page.recording_structure_combo.currentData()
-        
         new_settings = {
             "theme": new_theme,
             "default_grid": page.grid_combo.currentText(),
@@ -255,9 +287,7 @@ class MainWindow(QMainWindow):
             "recording_structure": new_structure
         }
         DataManager.save_settings(new_settings)
-        
         self.apply_theme(new_theme)
-        
         if old_lang != new_lang: self.restart_requested.emit()
         else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
@@ -266,9 +296,6 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("live_view")
         if not page: return
         page.camera_selector.clear()
-        settings = DataManager.load_settings()
-        recording_path = Path(settings.get("recording_path"))
-        recording_path.mkdir(parents=True, exist_ok=True)
         cameras_data = DataManager.load_cameras()
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         for cam_data in active_cameras:
@@ -337,6 +364,8 @@ class MainWindow(QMainWindow):
         
         page.view_in_app_button.setText("Преглед в програмата")
         page.open_in_player_button.setText("Отваряне в плейър")
+        page.open_folder_button.setText(self.translator.get_string("open_folder_button"))
+        page.info_button.setText("Информация")
 
         all_events = DataManager.load_events()
         cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
@@ -428,6 +457,22 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["open", folder_path])
         else:
             subprocess.Popen(["xdg-open", folder_path])
+
+    def show_event_info(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        
+        event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        file_path = event_data.get("file_path")
+
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
+            return
+        
+        info_dialog = InfoDialog(file_path, parent=self)
+        info_dialog.exec()
 
     def delete_event(self):
         page = self.created_pages.get("recordings")

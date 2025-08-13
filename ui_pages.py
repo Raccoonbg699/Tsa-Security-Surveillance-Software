@@ -111,20 +111,23 @@ class RecordingsPage(QWidget):
         
         self.view_in_app_button = QPushButton("Преглед в програмата")
         self.open_in_player_button = QPushButton("Отваряне в плейър")
-        # --- ПРОМЯНА: Добавяме новия бутон ---
         self.open_folder_button = QPushButton(translator.get_string("open_folder_button"))
+        # --- ПРОМЯНА: Добавяме новия бутон ---
+        self.info_button = QPushButton("Информация")
         self.delete_button = QPushButton(translator.get_string("delete_recording_button"))
         
         self.view_in_app_button.setEnabled(False)
         self.open_in_player_button.setEnabled(False)
-        self.open_folder_button.setEnabled(False) # Деактивиран по подразбиране
+        self.open_folder_button.setEnabled(False)
+        self.info_button.setEnabled(False) # Деактивиран по подразбиране
         self.delete_button.setEnabled(False)
 
         top_layout.addWidget(title)
         top_layout.addStretch()
         top_layout.addWidget(self.view_in_app_button)
         top_layout.addWidget(self.open_in_player_button)
-        top_layout.addWidget(self.open_folder_button) # Добавяме го в лейаута
+        top_layout.addWidget(self.open_folder_button)
+        top_layout.addWidget(self.info_button) # Добавяме го в лейаута
         top_layout.addWidget(self.delete_button)
 
         filters_layout = QHBoxLayout()
@@ -145,7 +148,8 @@ class RecordingsPage(QWidget):
         is_selected = bool(self.list_widget.selectedItems())
         self.view_in_app_button.setEnabled(is_selected)
         self.open_in_player_button.setEnabled(is_selected)
-        self.open_folder_button.setEnabled(is_selected) # Активираме го при селекция
+        self.open_folder_button.setEnabled(is_selected)
+        self.info_button.setEnabled(is_selected) # Активираме го при селекция
         self.delete_button.setEnabled(is_selected)
 
 class SettingsPage(QWidget):
