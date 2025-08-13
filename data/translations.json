@@ -50,7 +50,9 @@
         "recording_structure_label": "Recording Structure:",
         "single_folder_option": "Single Folder for All",
         "per_camera_folder_option": "Folder for Each Camera",
-        "open_folder_button": "Open Folder"
+        "open_folder_button": "Open Folder",
+        "camera_username_label": "Username (optional):",
+        "camera_password_label": "Password (optional):"
     },
     "bg": {
         "login_window_title": "Tsa-Security - Вход",
@@ -103,6 +105,8 @@
         "recording_structure_label": "Структура на записите:",
         "single_folder_option": "Всички в една папка",
         "per_camera_folder_option": "Папка за всяка камера",
-        "open_folder_button": "Отвори папка"
+        "open_folder_button": "Отвори папка",
+        "camera_username_label": "Потребител (опционално):",
+        "camera_password_label": "Парола (опционално):"
     }
 }

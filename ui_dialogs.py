@@ -3,10 +3,13 @@ from PySide6.QtWidgets import (
     QLineEdit, QCheckBox, QLabel, QComboBox
 )
 
+from data_manager import get_translator
+
 class CameraDialog(QDialog):
     def __init__(self, camera_data=None, parent=None):
         super().__init__(parent)
         self.is_edit_mode = camera_data is not None
+        translator = get_translator()
         
         window_title = "Редактиране на камера" if self.is_edit_mode else "Добавяне на нова камера"
         self.setWindowTitle(window_title)
@@ -18,25 +21,29 @@ class CameraDialog(QDialog):
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
         self.status_checkbox = QCheckBox("Активна")
-        # --- ПРОМЯНА: Добавяме отметка за детекция на движение ---
         self.motion_checkbox = QCheckBox("Детекция на движение")
+
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
         if self.is_edit_mode:
             self.name_input.setText(camera_data.get("name", ""))
             self.url_input.setText(camera_data.get("rtsp_url", ""))
             self.status_checkbox.setChecked(camera_data.get("is_active", True))
-            # --- ПРОМЯНА: Задаваме състоянието на отметката ---
             self.motion_checkbox.setChecked(camera_data.get("motion_enabled", True))
+            self.username_input.setText(camera_data.get("username", ""))
+            self.password_input.setText(camera_data.get("password", ""))
         else:
             self.status_checkbox.setChecked(True)
-            # Включена по подразбиране за нови камери
             self.motion_checkbox.setChecked(True)
 
         form_layout.addRow("Име на камера:", self.name_input)
         form_layout.addRow("RTSP Адрес:", self.url_input)
+        form_layout.addRow(translator.get_string("camera_username_label"), self.username_input)
+        form_layout.addRow(translator.get_string("camera_password_label"), self.password_input)
         form_layout.addRow(self.status_checkbox)
-        # --- ПРОМЯНА: Добавяме я във формата ---
-        form_layout.addRow(self.motion_checkbox) 
+        form_layout.addRow(self.motion_checkbox)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -50,8 +57,9 @@ class CameraDialog(QDialog):
             "name": self.name_input.text().strip(),
             "rtsp_url": self.url_input.text().strip(),
             "is_active": self.status_checkbox.isChecked(),
-            # --- ПРОМЯНА: Връщаме новата стойност ---
-            "motion_enabled": self.motion_checkbox.isChecked()
+            "motion_enabled": self.motion_checkbox.isChecked(),
+            "username": self.username_input.text().strip(),
+            "password": self.password_input.text()
         }
 
 class UserDialog(QDialog):
