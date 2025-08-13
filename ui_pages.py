@@ -95,7 +95,7 @@ class LiveViewPage(QWidget):
         main_layout.addLayout(bottom_controls)
 
 class RecordingsPage(QWidget):
-    """Страница за преглед на записи."""
+    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
@@ -108,28 +108,23 @@ class RecordingsPage(QWidget):
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
-        
         self.view_in_app_button = QPushButton("Преглед в програмата")
         self.open_in_player_button = QPushButton("Отваряне в плейър")
         self.open_folder_button = QPushButton(translator.get_string("open_folder_button"))
-        # --- ПРОМЯНА: Добавяме новия бутон ---
         self.info_button = QPushButton("Информация")
         self.delete_button = QPushButton(translator.get_string("delete_recording_button"))
-        
         self.view_in_app_button.setEnabled(False)
         self.open_in_player_button.setEnabled(False)
         self.open_folder_button.setEnabled(False)
-        self.info_button.setEnabled(False) # Деактивиран по подразбиране
+        self.info_button.setEnabled(False)
         self.delete_button.setEnabled(False)
-
         top_layout.addWidget(title)
         top_layout.addStretch()
         top_layout.addWidget(self.view_in_app_button)
         top_layout.addWidget(self.open_in_player_button)
         top_layout.addWidget(self.open_folder_button)
-        top_layout.addWidget(self.info_button) # Добавяме го в лейаута
+        top_layout.addWidget(self.info_button)
         top_layout.addWidget(self.delete_button)
-
         filters_layout = QHBoxLayout()
         filters_layout.addWidget(QLabel(translator.get_string("filters_label")))
         self.camera_filter = QComboBox()
@@ -149,55 +144,68 @@ class RecordingsPage(QWidget):
         self.view_in_app_button.setEnabled(is_selected)
         self.open_in_player_button.setEnabled(is_selected)
         self.open_folder_button.setEnabled(is_selected)
-        self.info_button.setEnabled(is_selected) # Активираме го при селекция
+        self.info_button.setEnabled(is_selected)
         self.delete_button.setEnabled(is_selected)
 
 class SettingsPage(QWidget):
-    # ... (този клас остава същият) ...
+    """Страница за настройки на приложението."""
     def __init__(self):
         super().__init__()
         translator = get_translator()
+        
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
+        
         title = QLabel(translator.get_string("page_settings_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
+
         form_layout = QFormLayout()
         form_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         form_layout.setSpacing(15)
+
         self.theme_combo = QComboBox()
         self.theme_combo.addItems([translator.get_string("dark_theme"), translator.get_string("light_theme")])
+        
         self.grid_combo = QComboBox()
         self.grid_combo.addItems(["1x1", "2x2", "3x3"])
+        
         self.lang_combo = QComboBox()
         self.lang_combo.addItem("Български", "bg")
         self.lang_combo.addItem("English", "en")
+
         self.recording_structure_combo = QComboBox()
         self.recording_structure_combo.addItem(translator.get_string("single_folder_option"), "single")
         self.recording_structure_combo.addItem(translator.get_string("per_camera_folder_option"), "per_camera")
+
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
         self.path_edit.setReadOnly(True)
-        browse_button = QPushButton("...")
-        browse_button.setFixedWidth(40)
-        browse_button.clicked.connect(self.select_recording_path)
+        # --- ПРОМЯНА: Превръщаме browse_button в атрибут на класа ---
+        self.browse_button = QPushButton("...")
+        self.browse_button.setFixedWidth(40)
+        self.browse_button.clicked.connect(self.select_recording_path)
         path_layout.addWidget(self.path_edit, 1)
-        path_layout.addWidget(browse_button)
+        path_layout.addWidget(self.browse_button)
+
         form_layout.addRow(translator.get_string("app_theme_label"), self.theme_combo)
         form_layout.addRow(translator.get_string("default_view_label"), self.grid_combo)
         form_layout.addRow(translator.get_string("language_label"), self.lang_combo)
         form_layout.addRow(translator.get_string("recordings_folder_label"), path_layout)
         form_layout.addRow(translator.get_string("recording_structure_label"), self.recording_structure_combo)
+        
         self.save_button = QPushButton(translator.get_string("save_changes_button"))
         self.save_button.setObjectName("AccentButton")
+
         layout.addWidget(title)
         layout.addLayout(form_layout)
         layout.addStretch()
         layout.addWidget(self.save_button, 0, Qt.AlignmentFlag.AlignRight)
+
     def select_recording_path(self):
         directory = QFileDialog.getExistingDirectory(self, "Изберете папка за записи")
         if directory:
@@ -232,6 +240,7 @@ class UsersPage(QWidget):
         layout.addWidget(title)
         layout.addLayout(buttons_layout)
         layout.addWidget(self.list_widget)
+
     def on_selection_changed(self):
         is_selected = bool(self.list_widget.selectedItems())
         self.edit_button.setEnabled(is_selected)
