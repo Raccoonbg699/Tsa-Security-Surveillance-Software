@@ -7,7 +7,7 @@ from datetime import datetime
 import cv2
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem
+    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout
 )
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon
@@ -183,15 +183,26 @@ class MainWindow(QMainWindow):
     def show_live_view_page(self): self.switch_to_page("live_view")
     def show_cameras_page(self): self.switch_to_page("cameras")
     def show_recordings_page(self): self.switch_to_page("recordings")
+    
     def show_settings_page(self):
         self.switch_to_page("settings")
         page = self.created_pages.get("settings")
         if not page: return
+        
         is_admin = (self.user_role == "Administrator")
-        page.path_edit.setEnabled(is_admin)
-        page.browse_button.setEnabled(is_admin)
-        page.recording_structure_combo.setEnabled(is_admin)
-        page.save_button.setEnabled(is_admin)
+        
+        page.path_edit.setVisible(is_admin)
+        page.browse_button.setVisible(is_admin)
+        page.recording_structure_combo.setVisible(is_admin)
+        page.save_button.setVisible(is_admin)
+
+        form_layout = page.layout().itemAt(1)
+        for i in range(form_layout.rowCount()):
+            label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
+            if label_item:
+                label_widget = label_item.widget()
+                if label_widget.text() in [self.translator.get_string("recordings_folder_label"), self.translator.get_string("recording_structure_label")]:
+                    label_widget.setVisible(is_admin)
 
     def show_users_page(self):
         if self.user_role == "Administrator": self.switch_to_page("users")
@@ -671,6 +682,10 @@ class MainWindow(QMainWindow):
             return self.video_workers.get(cam_id), self.active_video_widgets.get(cam_id)
         return None, None
             
+    def sanitize_filename(self, name):
+        """Премахва невалидни символи от низ, за да стане валидно име на файл."""
+        return "".join(c for c in name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+
     def get_recording_path_for_camera(self, worker):
         """Определя пътя за запис спрямо текущите настройки."""
         settings = DataManager.load_settings()
@@ -685,10 +700,6 @@ class MainWindow(QMainWindow):
         else: # "single"
             base_path.mkdir(parents=True, exist_ok=True)
             return base_path
-            
-    def sanitize_filename(self, name):
-        """Премахва невалидни символи от низ, за да стане валидно име на файл."""
-        return "".join(c for c in name if c.isalnum() or c in (' ', '.', '_')).rstrip()
 
     def take_snapshot(self):
         worker, _ = self.get_camera_to_control()
