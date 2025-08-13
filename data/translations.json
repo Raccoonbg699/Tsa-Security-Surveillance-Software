@@ -45,7 +45,8 @@
         "default_view_label": "Default View:",
         "recordings_folder_label": "Recordings Folder:",
         "save_changes_button": "Save Changes",
-        "language_label": "Language:"
+        "language_label": "Language:",
+        "replay_button": "Replay"
     },
     "bg": {
         "login_window_title": "Tsa-Security - Вход",
@@ -93,6 +94,7 @@
         "default_view_label": "Изглед по подразбиране:",
         "recordings_folder_label": "Папка за записи:",
         "save_changes_button": "Запази промените",
-        "language_label": "Език:"
+        "language_label": "Език:",
+        "replay_button": "Пусни отново"
     }
 }
