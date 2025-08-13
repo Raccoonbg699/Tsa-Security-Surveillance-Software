@@ -46,7 +46,10 @@
         "recordings_folder_label": "Recordings Folder:",
         "save_changes_button": "Save Changes",
         "language_label": "Language:",
-        "replay_button": "Replay"
+        "replay_button": "Replay",
+        "recording_structure_label": "Recording Structure:",
+        "single_folder_option": "Single Folder for All",
+        "per_camera_folder_option": "Folder for Each Camera"
     },
     "bg": {
         "login_window_title": "Tsa-Security - Вход",
@@ -95,6 +98,9 @@
         "recordings_folder_label": "Папка за записи:",
         "save_changes_button": "Запази промените",
         "language_label": "Език:",
-        "replay_button": "Пусни отново"
+        "replay_button": "Пусни отново",
+        "recording_structure_label": "Структура на записите:",
+        "single_folder_option": "Всички в една папка",
+        "per_camera_folder_option": "Папка за всяка камера"
     }
 }
