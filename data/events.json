@@ -1,5 +1,33 @@
 [
     {
+        "event_id": "1e8ee2f2-1853-4dd5-80ed-12a8dd3e4ea1",
+        "timestamp": "2025-08-14 01:32:16",
+        "camera_name": "Мрежа",
+        "event_type": "Запис (мрежа)",
+        "file_path": "C:\\TSA-Security\\Recordings\\rec_grid_20250814_013216.mp4"
+    },
+    {
+        "event_id": "d73029f9-96ff-4dd9-8278-6f185f1fbc8d",
+        "timestamp": "2025-08-14 01:31:39",
+        "camera_name": "Мрежа",
+        "event_type": "Снимка (мрежа)",
+        "file_path": "C:\\TSA-Security\\Recordings\\snap_grid_20250814_013139.jpg"
+    },
+    {
+        "event_id": "6e415d0c-f14f-45f4-bcd1-8b36d056cced",
+        "timestamp": "2025-08-14 01:30:50",
+        "camera_name": "Camera.192.168.1.13",
+        "event_type": "Ръчен запис",
+        "file_path": "C:\\TSA-Security\\Recordings\\Camera.192.168.1.13\\rec_Camera.192.168.1.13_20250814_013050.mp4"
+    },
+    {
+        "event_id": "a3f32eaf-9152-4158-890d-0fc6b07d8b56",
+        "timestamp": "2025-08-14 01:30:40",
+        "camera_name": "Camera.192.168.1.13",
+        "event_type": "Снимка",
+        "file_path": "C:\\TSA-Security\\Recordings\\Camera.192.168.1.13\\snap_Camera.192.168.1.13_20250814_013040.jpg"
+    },
+    {
         "event_id": "81b2a7f9-19fd-4401-b13e-96ff3678272d",
         "timestamp": "2025-08-13 23:38:04",
         "camera_name": "Camera.192.168.1.14",

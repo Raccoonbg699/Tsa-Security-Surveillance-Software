@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import cv2
+import numpy as np
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout
@@ -38,6 +39,11 @@ class MainWindow(QMainWindow):
         self.active_video_widgets = {}
         self.recording_worker = None
         self.created_pages = {}
+        
+        self.latest_grid_frames = {}
+        self.grid_recording_timer = QTimer(self)
+        self.grid_recording_timer.timeout.connect(self._compose_and_record_grid_frame)
+        self.is_grid_recording = False
         
         self.scanner_thread = None
         self.scanner = None
@@ -188,14 +194,11 @@ class MainWindow(QMainWindow):
         self.switch_to_page("settings")
         page = self.created_pages.get("settings")
         if not page: return
-        
         is_admin = (self.user_role == "Administrator")
-        
         page.path_edit.setVisible(is_admin)
         page.browse_button.setVisible(is_admin)
         page.recording_structure_combo.setVisible(is_admin)
         page.save_button.setVisible(is_admin)
-
         form_layout = page.layout().itemAt(1)
         for i in range(form_layout.rowCount()):
             label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
@@ -348,10 +351,11 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(5000, lambda: self.start_single_worker(cam_data, frame_widget))
 
     def stop_all_streams(self):
+        if self.is_grid_recording: self.stop_grid_recording()
         if self.recording_worker:
             worker, _ = self.get_camera_to_control()
             if worker:
-                try: worker.FrameForRecording.disconnect(self.recording_worker.add_frame)
+                try: worker.FrameForRecording.disconnect(self.handle_single_frame_for_recording)
                 except (TypeError, RuntimeError): pass
             self.recording_worker.stop()
             self.recording_worker.wait()
@@ -701,26 +705,82 @@ class MainWindow(QMainWindow):
             base_path.mkdir(parents=True, exist_ok=True)
             return base_path
 
+    def get_visible_widgets(self):
+        visible_widgets = []
+        page = self.created_pages.get("live_view")
+        if not page: return visible_widgets
+        for i in range(page.grid_layout.count()):
+            widget = page.grid_layout.itemAt(i).widget()
+            if widget and widget.isVisible():
+                visible_widgets.append(widget)
+        return visible_widgets
+
     def take_snapshot(self):
-        worker, _ = self.get_camera_to_control()
-        if worker:
-            frame = worker.get_latest_frame()
-            if frame is not None:
-                recording_path = self.get_recording_path_for_camera(worker)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                safe_name = self.sanitize_filename(worker.camera_data['name'])
-                filename = recording_path / f"snap_{safe_name}_{timestamp}.jpg"
-                cv2.imwrite(str(filename), frame)
-                print(f"Снимка запазена: {filename}")
-                self.add_event(worker.camera_data['id'], "Снимка", str(filename))
+        page = self.created_pages.get("live_view")
+        if not page: return
+
+        if page.grid_1x1_button.isChecked():
+            worker, _ = self.get_camera_to_control()
+            if worker:
+                frame = worker.get_latest_frame()
+                if frame is not None:
+                    recording_path = self.get_recording_path_for_camera(worker)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    safe_name = self.sanitize_filename(worker.camera_data['name'])
+                    filename = recording_path / f"snap_{safe_name}_{timestamp}.jpg"
+                    cv2.imwrite(str(filename), frame)
+                    print(f"Снимка запазена: {filename}")
+                    self.add_event(worker.camera_data['id'], "Снимка", str(filename))
+            return
+
+        visible_widgets = self.get_visible_widgets()
+        if not visible_widgets: return
+        cols = 2 if page.grid_2x2_button.isChecked() else 3
+        rows = (len(visible_widgets) + cols - 1) // cols
+        
+        first_worker = self.video_workers.get(visible_widgets[0].camera_id)
+        if not first_worker: return
+        sample_frame = first_worker.get_latest_frame()
+        if sample_frame is None: return
+        h, w, _ = sample_frame.shape
+
+        canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
+        for i, widget in enumerate(visible_widgets):
+            worker = self.video_workers.get(widget.camera_id)
+            if worker:
+                frame = worker.get_latest_frame()
+                if frame is not None:
+                    row, col = i // cols, i % cols
+                    canvas[row*h:(row+1)*h, col*w:(col+1)*w] = frame
+
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = recording_path / f"snap_grid_{timestamp}.jpg"
+        cv2.imwrite(str(filename), canvas)
+        print(f"Снимка на мрежата е запазена: {filename}")
+        self.add_event("grid", "Снимка (мрежа)", str(filename))
 
     def toggle_manual_recording(self, is_recording):
         page = self.created_pages.get("live_view")
         if not page: return
+        
+        if page.grid_1x1_button.isChecked():
+            self.toggle_single_camera_recording(is_recording)
+            return
+            
+        if is_recording:
+            self.start_grid_recording()
+        else:
+            self.stop_grid_recording()
+
+    def toggle_single_camera_recording(self, is_recording):
+        page = self.created_pages.get("live_view")
         worker, widget = self.get_camera_to_control()
         if not worker or not widget: 
-            page.record_button.setChecked(False)
+            if page: page.record_button.setChecked(False)
             return
+
         if is_recording:
             page.record_button.setText(self.translator.get_string("stop_record_button"))
             if self.recording_worker: return
@@ -734,9 +794,8 @@ class MainWindow(QMainWindow):
                 return
             height, width, _ = frame.shape
             recording_fps = 20.0
-            print(f"Starting recording with fixed FPS: {recording_fps}")
             self.recording_worker = RecordingWorker(str(filename), width, height, recording_fps)
-            worker.FrameForRecording.connect(self.recording_worker.add_frame)
+            worker.FrameForRecording.connect(self.handle_single_frame_for_recording)
             self.recording_worker.start()
             widget.set_recording_state(True)
             self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
@@ -744,23 +803,138 @@ class MainWindow(QMainWindow):
         else:
             page.record_button.setText(self.translator.get_string("record_button"))
             if self.recording_worker:
-                try:
-                    worker.FrameForRecording.disconnect(self.recording_worker.add_frame)
+                try: worker.FrameForRecording.disconnect(self.handle_single_frame_for_recording)
                 except (TypeError, RuntimeError): pass
                 self.recording_worker.stop()
                 self.recording_worker.wait()
                 self.recording_worker = None
                 if widget: widget.set_recording_state(False)
                 print("Ръчен запис спрян.")
+    
+    def handle_single_frame_for_recording(self, cam_id, frame):
+        if self.recording_worker and self.recording_worker.isRunning():
+            self.recording_worker.add_frame(frame)
+
+    def start_grid_recording(self):
+        page = self.created_pages.get("live_view")
+        if not page: return
+        
+        page.record_button.setText(self.translator.get_string("stop_record_button"))
+        if self.is_grid_recording: return
+
+        visible_widgets = self.get_visible_widgets()
+        if not visible_widgets:
+            page.record_button.setChecked(False)
+            return
+
+        first_worker = self.video_workers.get(visible_widgets[0].camera_id)
+        if not first_worker: return
+        sample_frame = first_worker.get_latest_frame()
+        if sample_frame is None: return
+        h, w, _ = sample_frame.shape
+        
+        cols = 2 if page.grid_2x2_button.isChecked() else 3
+        rows = (len(visible_widgets) + cols - 1) // cols
+        
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = recording_path / f"rec_grid_{timestamp}.mp4"
+        
+        recording_fps = 20.0
+        self.recording_worker = RecordingWorker(str(filename), w * cols, h * rows, recording_fps)
+        
+        self.latest_grid_frames.clear()
+        for widget in visible_widgets:
+            worker = self.video_workers.get(widget.camera_id)
+            if worker:
+                worker.FrameForRecording.connect(self._update_latest_grid_frame)
+        
+        self.grid_recording_timer.start(1000 / recording_fps)
+        self.recording_worker.start()
+        self.is_grid_recording = True
+        
+        for widget in visible_widgets:
+            widget.set_recording_state(True)
+
+        self.add_event("grid", "Запис (мрежа)", str(filename))
+        print(f"Запис на мрежата стартиран: {filename}")
+
+    def stop_grid_recording(self):
+        page = self.created_pages.get("live_view")
+        if not page: return
+        
+        page.record_button.setText(self.translator.get_string("record_button"))
+        if not self.is_grid_recording: return
+
+        self.grid_recording_timer.stop()
+        
+        for worker in self.video_workers.values():
+            try: worker.FrameForRecording.disconnect(self._update_latest_grid_frame)
+            except (TypeError, RuntimeError): pass
+
+        if self.recording_worker:
+            self.recording_worker.stop()
+            self.recording_worker.wait()
+            self.recording_worker = None
+
+        self.is_grid_recording = False
+        
+        for widget in self.get_visible_widgets():
+            widget.set_recording_state(False)
+            
+        print("Запис на мрежата спрян.")
+
+    def _update_latest_grid_frame(self, cam_id, frame):
+        self.latest_grid_frames[cam_id] = frame
+
+    def _compose_and_record_grid_frame(self):
+        page = self.created_pages.get("live_view")
+        if not page or not self.is_grid_recording:
+            return
+            
+        visible_widgets = self.get_visible_widgets()
+        if not visible_widgets: return
+
+        first_worker = self.video_workers.get(visible_widgets[0].camera_id)
+        if not first_worker: return
+        sample_frame = first_worker.get_latest_frame()
+        if sample_frame is None: return
+        h, w, _ = sample_frame.shape
+
+        cols = 2 if page.grid_2x2_button.isChecked() else 3
+        rows = (len(visible_widgets) + cols - 1) // cols
+        
+        canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
+
+        for i, widget in enumerate(visible_widgets):
+            frame = self.latest_grid_frames.get(widget.camera_id)
+            if frame is not None:
+                row, col = i // cols, i % cols
+                resized_frame = cv2.resize(frame, (w, h))
+                canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
+        
+        if self.recording_worker:
+            self.recording_worker.add_frame(canvas)
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = DataManager.load_cameras()
         camera_name = "Неизвестна камера"
-        for cam in cameras:
-            if cam.get("id") == camera_id:
-                camera_name = cam.get("name")
-                break
-        new_event = { "event_id": str(uuid.uuid4()), "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "camera_name": camera_name, "event_type": event_type, "file_path": str(file_path) }
+        if camera_id == "grid":
+            camera_name = "Мрежа"
+        else:
+            for cam in cameras:
+                if cam.get("id") == camera_id:
+                    camera_name = cam.get("name")
+                    break
+        
+        new_event = {
+            "event_id": str(uuid.uuid4()),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "camera_name": camera_name,
+            "event_type": event_type,
+            "file_path": str(file_path)
+        }
         all_events = DataManager.load_events()
         all_events.insert(0, new_event)
         DataManager.save_events(all_events)

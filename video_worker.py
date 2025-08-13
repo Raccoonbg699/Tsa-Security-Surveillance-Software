@@ -8,9 +8,6 @@ import threading
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
-from data_manager import get_translator
-from ui_widgets import AspectRatioLabel
-
 class RecordingWorker(QThread):
     """
     "Умна" нишка за запис, която поддържа постоянен FPS чрез дублиране/пропускане на кадри.
@@ -31,15 +28,12 @@ class RecordingWorker(QThread):
 
         while self._is_running or not self.frame_queue.empty():
             try:
-                # Взимаме кадър, но не чакаме повече от необходимото
                 frame = self.frame_queue.get(timeout=self.frame_duration)
                 last_frame = frame
             except Exception:
-                # Ако няма нов кадър, просто продължаваме да записваме стария
                 if not self._is_running:
-                    break # Излизаме, ако е спряна и опашката е празна
+                    break
             
-            # Ако имаме кадър, го записваме, докато наваксаме с времето
             if last_frame is not None and self._video_writer.isOpened():
                 current_time = time.time()
                 while next_frame_time <= current_time:
@@ -51,7 +45,6 @@ class RecordingWorker(QThread):
         print("Нишката за запис приключи коректно.")
 
     def add_frame(self, frame):
-        # Опашката вече не трябва да е голяма
         if self.frame_queue.qsize() < 2:
             self.frame_queue.put(frame)
 
@@ -62,12 +55,23 @@ class VideoWorker(QThread):
     ImageUpdate = Signal(QImage)
     StreamStatus = Signal(str)
     MotionDetected = Signal(str)
-    FrameForRecording = Signal(object) # Вече изпраща само кадъра
+    # --- ПРОМЯНА: Сигналът вече изпраща ID на камера и кадър ---
+    FrameForRecording = Signal(str, object)
 
     def __init__(self, camera_data, recording_path):
         super().__init__()
         self.camera_data = camera_data
-        self.rtsp_url = camera_data.get("rtsp_url")
+        
+        user = camera_data.get("username")
+        pwd = camera_data.get("password")
+        url = camera_data.get("rtsp_url", "")
+        
+        if user and pwd and "rtsp://" in url:
+            url_parts = url.split("rtsp://")
+            self.rtsp_url = f"rtsp://{user}:{pwd}@{url_parts[1]}"
+        else:
+            self.rtsp_url = url
+
         self.frame_queue = Queue(maxsize=2)
         self.motion_enabled = camera_data.get("motion_enabled", True)
         self.motion_sensitivity = 500
@@ -96,7 +100,7 @@ class VideoWorker(QThread):
             time.sleep(0.005)
         cap.release()
         self.frame_queue.put(None)
-        print(f"Нишката за четене на {self.rtsp_url} приключи.")
+        print(f"Нишката за четене на {self.camera_data.get('name')} приключи.")
 
     def _process_frames(self):
         frame_counter = 0
@@ -106,8 +110,8 @@ class VideoWorker(QThread):
             with self.frame_lock:
                 self.latest_frame = frame.copy()
             
-            # Изпращаме само кадъра, без времева марка
-            self.FrameForRecording.emit(frame)
+            # --- ПРОМЯНА: Изпращаме ID-то на камерата заедно с кадъра ---
+            self.FrameForRecording.emit(self.camera_data.get("id"), frame)
             
             display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
             frame_counter += 1
@@ -118,7 +122,7 @@ class VideoWorker(QThread):
             bytes_per_line = ch * w
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             self.ImageUpdate.emit(qt_image)
-        print(f"Нишката за обработка на {self.rtsp_url} приключи.")
+        print(f"Нишката за обработка на {self.camera_data.get('name')} приключи.")
 
     def handle_motion_detection(self, processed_frame):
         gray = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
@@ -137,7 +141,7 @@ class VideoWorker(QThread):
         self.processing_thread.start()
         super().start()
     def stop(self):
-        print(f"Подадена команда за спиране на нишките за {self.rtsp_url}")
+        print(f"Подадена команда за спиране на нишките за {self.camera_data.get('name')}")
         self._is_running = False
         if self.processing_thread.is_alive():
             self.processing_thread.join()
