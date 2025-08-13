@@ -1,16 +1,1 @@
-[
-    {
-        "event_id": "62371758-12b7-4862-9fb9-b9755e1b64db",
-        "timestamp": "2025-08-13 02:51:15",
-        "camera_name": "Камера @ 192.168.1.13",
-        "event_type": "Ръчен запис",
-        "file_path": "C:\\TSA-Security\\Recordings\\rec_Камера_@_192.168.1.13_20250813_025115.mp4"
-    },
-    {
-        "event_id": "8a01d611-3304-46c0-a871-7be3e854d9b0",
-        "timestamp": "2025-08-13 02:51:14",
-        "camera_name": "Камера @ 192.168.1.13",
-        "event_type": "Снимка",
-        "file_path": "C:\\TSA-Security\\Recordings\\snap_Камера_@_192.168.1.13_20250813_025114.jpg"
-    }
-]
+[]

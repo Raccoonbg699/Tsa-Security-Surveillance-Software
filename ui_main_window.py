@@ -169,8 +169,7 @@ class MainWindow(QMainWindow):
 
     def filter_cameras_list(self):
         page = self.created_pages.get("cameras")
-        if not page:
-            return
+        if not page: return
         search_text = page.search_input.text().lower()
         for i in range(page.list_widget.count()):
             item = page.list_widget.item(i)
@@ -246,13 +245,7 @@ class MainWindow(QMainWindow):
             print(f"Камера с IP {ip_address} вече съществува. Пропускане.")
             return
 
-        new_cam_data = {
-            "id": str(uuid.uuid4()),
-            "name": f"Камера @ {ip_address}",
-            "rtsp_url": f"rtsp://{ip_address}:554/",
-            "is_active": True,
-            "motion_enabled": True
-        }
+        new_cam_data = { "id": str(uuid.uuid4()), "name": f"Камера @ {ip_address}", "rtsp_url": f"rtsp://{ip_address}:554/", "is_active": True, "motion_enabled": True }
         cameras.append(new_cam_data)
         DataManager.save_cameras(cameras)
         self.refresh_cameras_view()
@@ -281,8 +274,7 @@ class MainWindow(QMainWindow):
         
         lang_code = settings_data.get("language", "bg")
         index = page.lang_combo.findData(lang_code)
-        if index != -1:
-            page.lang_combo.setCurrentIndex(index)
+        if index != -1: page.lang_combo.setCurrentIndex(index)
 
     def apply_theme(self, theme_name):
         style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
@@ -304,20 +296,13 @@ class MainWindow(QMainWindow):
         new_theme = "dark" if page.theme_combo.currentText() == self.translator.get_string("dark_theme") else "light"
         new_lang = page.lang_combo.currentData()
         
-        new_settings = {
-            "theme": new_theme,
-            "default_grid": page.grid_combo.currentText(),
-            "recording_path": page.path_edit.text(),
-            "language": new_lang
-        }
+        new_settings = { "theme": new_theme, "default_grid": page.grid_combo.currentText(), "recording_path": page.path_edit.text(), "language": new_lang }
         DataManager.save_settings(new_settings)
         
         self.apply_theme(new_theme)
         
-        if old_lang != new_lang:
-            self.restart_requested.emit()
-        else:
-            QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
+        if old_lang != new_lang: self.restart_requested.emit()
+        else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):
         if self.video_workers: return
@@ -339,20 +324,14 @@ class MainWindow(QMainWindow):
         self.update_grid_layout()
 
     def start_single_worker(self, cam_data, frame_widget):
-        settings = DataManager.load_settings()
-        recording_path = Path(settings.get("recording_path"))
         cam_id = cam_data.get("id")
-        worker = VideoWorker(camera_data=cam_data, recording_path=recording_path)
+        worker = VideoWorker(camera_data=cam_data, recording_path=None)
         worker.ImageUpdate.connect(frame_widget.update_frame)
         worker.StreamStatus.connect(frame_widget.update_status)
         worker.MotionDetected.connect(self.on_motion_detected)
         worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
-        worker.ActualFPSEstimated.connect(self.update_measured_fps)
         worker.start()
         self.video_workers[cam_id] = worker
-
-    def update_measured_fps(self, camera_id, fps):
-        self.measured_fps[camera_id] = fps
 
     def handle_worker_finished(self, cam_id):
         print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
@@ -368,7 +347,7 @@ class MainWindow(QMainWindow):
         if self.recording_worker:
             worker, _ = self.get_camera_to_control()
             if worker:
-                try: worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                try: worker.FrameForRecording.disconnect(self.recording_worker.add_frame)
                 except (TypeError, RuntimeError): pass
             self.recording_worker.stop()
             self.recording_worker.wait()
@@ -399,7 +378,6 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("recordings")
         if not page: return
         
-        # Превеждаме бутоните тук, за да се обновят при смяна на езика
         page.view_in_app_button.setText("Преглед в програмата")
         page.open_in_player_button.setText("Отваряне в плейър")
 
@@ -660,6 +638,10 @@ class MainWindow(QMainWindow):
             return self.video_workers.get(cam_id), self.active_video_widgets.get(cam_id)
         return None, None
             
+    def sanitize_filename(self, name):
+        """Премахва невалидни символи от низ, за да стане валидно име на файл."""
+        return "".join(c for c in name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+
     def take_snapshot(self):
         worker, _ = self.get_camera_to_control()
         if worker:
@@ -668,7 +650,8 @@ class MainWindow(QMainWindow):
                 settings = DataManager.load_settings()
                 recording_path = Path(settings.get("recording_path"))
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = recording_path / f"snap_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.jpg"
+                safe_name = self.sanitize_filename(worker.camera_data['name'])
+                filename = recording_path / f"snap_{safe_name}_{timestamp}.jpg"
                 cv2.imwrite(str(filename), frame)
                 print(f"Снимка запазена: {filename}")
                 self.add_event(worker.camera_data['id'], "Снимка", str(filename))
@@ -686,17 +669,17 @@ class MainWindow(QMainWindow):
             settings = DataManager.load_settings()
             recording_path = Path(settings.get("recording_path"))
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = recording_path / f"rec_{worker.camera_data['name'].replace(' ', '_')}_{timestamp}.mp4"
+            safe_name = self.sanitize_filename(worker.camera_data['name'])
+            filename = recording_path / f"rec_{safe_name}_{timestamp}.mp4"
             frame = worker.get_latest_frame()
             if frame is None:
                 page.record_button.setChecked(False)
                 return
             height, width, _ = frame.shape
-            cam_id = worker.camera_data.get("id")
-            fps = self.measured_fps.get(cam_id, 15.0)
-            print(f"Starting recording for {cam_id} with measured FPS: {fps:.2f}")
-            self.recording_worker = RecordingWorker(str(filename), width, height, fps)
-            worker.FrameForRecording.connect(self.handle_frame_for_recording)
+            recording_fps = 20.0
+            print(f"Starting recording with fixed FPS: {recording_fps}")
+            self.recording_worker = RecordingWorker(str(filename), width, height, recording_fps)
+            worker.FrameForRecording.connect(self.recording_worker.add_frame)
             self.recording_worker.start()
             widget.set_recording_state(True)
             self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
@@ -704,17 +687,14 @@ class MainWindow(QMainWindow):
         else:
             page.record_button.setText(self.translator.get_string("record_button"))
             if self.recording_worker:
-                try: worker.FrameForRecording.disconnect(self.handle_frame_for_recording)
+                try:
+                    worker.FrameForRecording.disconnect(self.recording_worker.add_frame)
                 except (TypeError, RuntimeError): pass
                 self.recording_worker.stop()
                 self.recording_worker.wait()
                 self.recording_worker = None
                 if widget: widget.set_recording_state(False)
                 print("Ръчен запис спрян.")
-
-    def handle_frame_for_recording(self, frame):
-        if self.recording_worker and self.recording_worker.isRunning():
-            self.recording_worker.add_frame(frame)
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = DataManager.load_cameras()

@@ -1,13 +1,13 @@
 [
     {
-        "name": "Камера @ 192.168.1.13",
+        "name": "Camera.192.168.1.13",
         "rtsp_url": "rtsp://192.168.1.13:554/",
         "is_active": true,
         "id": "138fa105-1b93-4aa0-8a2d-56aa2a8b16b3",
         "motion_enabled": false
     },
     {
-        "name": "Камера @ 192.168.1.14",
+        "name": "Camera.192.168.1.14",
         "rtsp_url": "rtsp://192.168.1.14:554/",
         "is_active": true,
         "id": "9c78b897-6698-4cfb-b218-f76b853cca9b",
