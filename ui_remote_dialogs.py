@@ -2,11 +2,11 @@ import uuid
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QListWidget, QListWidgetItem, QDialogButtonBox,
-    QFormLayout, QMessageBox
+    QFormLayout, QMessageBox, QApplication
 )
 from PySide6.QtCore import Qt, Signal
-from data_manager import get_translator # Уверете се, че data_manager е достъпен
-from remote_client import RemoteClient # Уверете се, че remote_client е достъпен
+from data_manager import get_translator, DataManager
+from remote_client import RemoteClient
 
 class RemoteSystemDialog(QDialog):
     """Диалогов прозорец за добавяне/редактиране на отдалечена система."""
@@ -106,24 +106,60 @@ class RemoteSystemsPage(QDialog):
         self.delete_button.setEnabled(is_selected)
         
     def load_systems(self):
-        # Логика за зареждане от файл ще бъде добавена тук
-        pass
+        self.list_widget.clear()
+        systems = DataManager.load_remote_systems()
+        for system in systems:
+            item = QListWidgetItem(f"{system['name']} ({system['ip']})")
+            item.setData(Qt.ItemDataRole.UserRole, system)
+            self.list_widget.addItem(item)
 
-    def save_systems(self):
-        # Логика за запис във файл ще бъде добавена тук
-        pass
+    def save_systems(self, systems_data):
+        DataManager.save_remote_systems(systems_data)
+        self.load_systems()
         
     def add_system(self):
-        # Логика за добавяне ще бъде добавена тук
-        pass
+        dialog = RemoteSystemDialog(parent=self)
+        if dialog.exec():
+            new_data = dialog.get_data()
+            if not all(new_data.values()):
+                QMessageBox.warning(self, "Грешка", "Всички полета са задължителни.")
+                return
+            new_data["id"] = str(uuid.uuid4())
+            systems = DataManager.load_remote_systems()
+            systems.append(new_data)
+            self.save_systems(systems)
 
     def edit_system(self):
-        # Логика за редактиране ще бъде добавена тук
-        pass
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items: return
+        system_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        
+        dialog = RemoteSystemDialog(system_data=system_to_edit, parent=self)
+        if dialog.exec():
+            updated_data = dialog.get_data()
+            if not all(updated_data.values()):
+                QMessageBox.warning(self, "Грешка", "Всички полета са задължителни.")
+                return
+            
+            systems = DataManager.load_remote_systems()
+            for i, system in enumerate(systems):
+                if system.get("id") == system_to_edit.get("id"):
+                    updated_data["id"] = system_to_edit.get("id")
+                    systems[i] = updated_data
+                    break
+            self.save_systems(systems)
 
     def delete_system(self):
-        # Логика за изтриване ще бъде добавена тук
-        pass
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items: return
+        system_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+        reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{system_to_delete['name']}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            systems = DataManager.load_remote_systems()
+            updated_systems = [s for s in systems if s.get("id") != system_to_delete.get("id")]
+            self.save_systems(updated_systems)
         
     def connect_to_system(self):
         selected_items = self.list_widget.selectedItems()
@@ -133,9 +169,15 @@ class RemoteSystemsPage(QDialog):
         
         client = RemoteClient(host=system_data["ip"], username=system_data["username"], password=system_data["password"])
         
+        self.connect_button.setEnabled(False)
+        self.connect_button.setText("Свързване...")
+        QApplication.processEvents()
+        
         if client.test_connection():
             QMessageBox.information(self, "Успех", f"Успешна връзка със система '{system_data['name']}'!")
-            self.connection_successful.emit(system_data)
+            self.connection_successful.emit(client)
             self.accept()
         else:
             QMessageBox.critical(self, "Грешка", f"Неуспешна връзка със система '{system_data['name']}'.\nПроверете IP адреса, потребителското име и паролата.")
+            self.connect_button.setText("Свържи се")
+            self.on_selection_changed()

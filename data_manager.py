@@ -6,9 +6,10 @@ DATA_DIR = Path(__file__).parent / "data"
 class Translator:
     def __init__(self):
         self.translations = {}
-        self.language = "bg"
+        self.language = "bg"  # Език по подразбиране
 
     def load_translations(self):
+        """Зарежда файла с преводи от папката data."""
         translations_file = DATA_DIR / "translations.json"
         try:
             with open(translations_file, "r", encoding="utf-8") as f:
@@ -18,15 +19,16 @@ class Translator:
             self.translations = {}
 
     def set_language(self, language):
+        """Задава текущия език."""
         if language in self.translations:
             self.language = language
         else:
             print(f"Предупреждение: Език '{language}' не е намерен. Използва се '{self.language}'.")
 
     def get_string(self, key):
+        """Връща преведения низ за даден ключ."""
         return self.translations.get(self.language, {}).get(key, key)
 
-# --- ПРОМЯНА: Преместваме инстанцията във функция ---
 _translator_instance = None
 def get_translator():
     """Връща единствена инстанция на преводача."""
@@ -36,7 +38,6 @@ def get_translator():
     return _translator_instance
 
 class DataManager:
-    # ... целият останал код на DataManager остава същият ...
     @staticmethod
     def load_users():
         DATA_DIR.mkdir(exist_ok=True)
@@ -104,28 +105,27 @@ class DataManager:
         DATA_DIR.mkdir(exist_ok=True)
         settings_file = DATA_DIR / "settings.json"
 
+        defaults = {
+            "theme": "dark",
+            "default_grid": "2x2",
+            "recording_path": str(Path.home() / "Videos" / "TSA-Security"),
+            "language": "bg",
+            "recording_structure": "single"
+        }
+
         if not settings_file.exists():
-            return {
-                "theme": "dark",
-                "default_grid": "2x2",
-                "recording_path": str(Path.home() / "Videos" / "TSA-Security"),
-                "language": "bg"
-            }
+            return defaults
 
         try:
             with open(settings_file, "r", encoding="utf-8") as f:
                 settings = json.load(f)
-                if "language" not in settings:
-                    settings["language"] = "bg"
+                for key, value in defaults.items():
+                    if key not in settings:
+                        settings[key] = value
                 return settings
         except json.JSONDecodeError:
             print("Предупреждение: Файлът 'settings.json' е повреден. Зареждат се настройки по подразбиране.")
-            return {
-                "theme": "dark",
-                "default_grid": "2x2",
-                "recording_path": str(Path.home() / "Videos" / "TSA-Security"),
-                "language": "bg"
-            }
+            return defaults
 
     @staticmethod
     def save_settings(settings_data):
@@ -133,3 +133,25 @@ class DataManager:
         settings_file = DATA_DIR / "settings.json"
         with open(settings_file, "w", encoding="utf-8") as f:
             json.dump(settings_data, f, indent=4, ensure_ascii=False)
+
+    @staticmethod
+    def load_remote_systems():
+        DATA_DIR.mkdir(exist_ok=True)
+        systems_file = DATA_DIR / "remote_systems.json"
+        if not systems_file.exists():
+            return []
+        try:
+            with open(systems_file, "r", encoding="utf-8") as f:
+                content = f.read()
+                if not content: return []
+                return json.loads(content)
+        except json.JSONDecodeError:
+            print("Предупреждение: Файлът 'remote_systems.json' е повреден.")
+            return []
+
+    @staticmethod
+    def save_remote_systems(systems_data):
+        DATA_DIR.mkdir(exist_ok=True)
+        systems_file = DATA_DIR / "remote_systems.json"
+        with open(systems_file, "w", encoding="utf-8") as f:
+            json.dump(systems_data, f, indent=4, ensure_ascii=False)

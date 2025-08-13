@@ -198,11 +198,14 @@ class MainWindow(QMainWindow):
         self.switch_to_page("settings")
         page = self.created_pages.get("settings")
         if not page: return
+        
         is_admin = (self.user_role == "Administrator")
+        
         page.path_edit.setVisible(is_admin)
         page.browse_button.setVisible(is_admin)
         page.recording_structure_combo.setVisible(is_admin)
         page.save_button.setVisible(is_admin)
+
         form_layout = page.layout().itemAt(1)
         for i in range(form_layout.rowCount()):
             label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
@@ -233,16 +236,46 @@ class MainWindow(QMainWindow):
         page.is_setup = True
         
     def scan_network(self):
-        # ... (този метод остава същият)
-        pass
+        subnet = get_local_subnet()
+        if not subnet:
+            QMessageBox.warning(self, "Грешка", "Не може да се определи локалната мрежа.")
+            return
+        self.progress_dialog = QProgressDialog("Сканиране на мрежата за камери...", "Отказ", 0, 100, self)
+        self.progress_dialog.setWindowTitle("Сканиране")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.scanner_thread = QThread()
+        self.scanner = NetworkScanner(subnet)
+        self.scanner.moveToThread(self.scanner_thread)
+        self.scanner.scan_progress.connect(self.progress_dialog.setValue)
+        self.scanner.camera_found.connect(self.add_scanned_camera)
+        self.scanner.scan_finished.connect(self.on_scan_finished)
+        self.progress_dialog.canceled.connect(self.scanner.cancel)
+        self.scanner_thread.started.connect(self.scanner.run)
+        page = self.created_pages.get("cameras")
+        if page: page.scan_button.setEnabled(False)
+        self.scanner_thread.start()
+        self.progress_dialog.show()
 
     def add_scanned_camera(self, ip_address):
-        # ... (този метод остава същият)
-        pass
+        cameras = DataManager.load_cameras()
+        if any(ip_address in cam.get('rtsp_url', '') for cam in cameras):
+            print(f"Камера с IP {ip_address} вече съществува. Пропускане.")
+            return
+        new_cam_data = { "id": str(uuid.uuid4()), "name": f"Камера @ {ip_address}", "rtsp_url": f"rtsp://{ip_address}:554/", "is_active": True, "motion_enabled": True }
+        cameras.append(new_cam_data)
+        DataManager.save_cameras(cameras)
+        self.refresh_cameras_view()
 
     def on_scan_finished(self, message):
-        # ... (този метод остава същият)
-        pass
+        QMessageBox.information(self, "Сканирането приключи", message)
+        self.progress_dialog.close()
+        page = self.created_pages.get("cameras")
+        if page: page.scan_button.setEnabled(True)
+        if self.scanner_thread:
+            self.scanner_thread.quit()
+            self.scanner_thread.wait()
+            self.scanner_thread = None
+            self.scanner = None
             
     def load_settings(self):
         page = self.created_pages.get("settings")
@@ -259,8 +292,14 @@ class MainWindow(QMainWindow):
         if index != -1: page.recording_structure_combo.setCurrentIndex(index)
 
     def apply_theme(self, theme_name):
-        # ... (този метод остава същият)
-        pass
+        style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
+        style_file = self.base_dir / style_file_name
+        try:
+            with open(style_file, "r", encoding="utf-8") as f:
+                style_sheet = f.read()
+                QApplication.instance().setStyleSheet(style_sheet)
+        except FileNotFoundError:
+            print(f"Предупреждение: Файлът със стилове {style_file} не е намерен.")
 
     def save_settings(self):
         page = self.created_pages.get("settings")
@@ -918,3 +957,4 @@ class MainWindow(QMainWindow):
         print(f"Ще се свържем към: {system_data['name']} на IP: {system_data['ip']}")
         # Тук в следващите стъпки ще добавим сложната логика за превключване
         # на цялото приложение в отдалечен режим.
+        #това е последната работеща версия на този файл искам да добавиш промените към този код
