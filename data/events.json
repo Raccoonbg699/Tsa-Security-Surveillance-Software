@@ -1,5 +1,12 @@
 [
     {
+        "event_id": "1cbecab6-4870-446a-983c-8ce57e7a23ba",
+        "timestamp": "2025-08-13 03:42:40",
+        "camera_name": "Camera.192.168.1.13",
+        "event_type": "Снимка",
+        "file_path": "C:\\TSA-Security\\Recordings\\snap_Camera.192.168.1.13_20250813_034240.jpg"
+    },
+    {
         "event_id": "fd52422b-e777-4e87-a29d-fc8b4d5bf9be",
         "timestamp": "2025-08-13 03:40:13",
         "camera_name": "Camera.192.168.1.13",
