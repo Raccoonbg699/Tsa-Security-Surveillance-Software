@@ -192,6 +192,7 @@ class MainWindow(QMainWindow):
         
         page.view_in_app_button.clicked.connect(self.view_event_in_app)
         page.open_in_player_button.clicked.connect(self.view_event_in_player)
+        page.open_folder_button.clicked.connect(self.open_event_folder)
         page.delete_button.clicked.connect(self.delete_event)
         
         page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
@@ -405,6 +406,28 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["open", file_path])
         else:
             subprocess.Popen(["xdg-open", file_path])
+
+    def open_event_folder(self):
+        page = self.created_pages.get("recordings")
+        if not page: return
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        
+        event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        file_path_str = event_data.get("file_path")
+
+        if not file_path_str or not os.path.exists(file_path_str):
+            QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path_str}")
+            return
+        
+        folder_path = os.path.dirname(file_path_str)
+        
+        if sys.platform == "win32":
+            os.startfile(folder_path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder_path])
+        else:
+            subprocess.Popen(["xdg-open", folder_path])
 
     def delete_event(self):
         page = self.created_pages.get("recordings")
