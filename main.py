@@ -7,8 +7,9 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
 
 from ui_login_window import LoginWindow
 from ui_main_window import MainWindow
-# --- ПРОМЯНА: Импортираме DataManager и get_translator ---
 from data_manager import DataManager, get_translator
+# --- ПРОМЯНА: Импортираме нашия API сървър ---
+from api_server import ApiServer
 
 BASE_DIR = Path(__file__).parent
 
@@ -18,17 +19,20 @@ class ApplicationController:
         self.app = app
         self.login_window = None
         self.main_window = None
+        # --- ПРОМЯНА: Създаваме инстанция на сървъра ---
+        self.api_server = ApiServer()
 
     def start(self):
-        """Показва прозореца за вход."""
-        # --- ПРОМЯНА: Презареждаме преводите всеки път ---
+        """Показва прозореца за вход и стартира API сървъра."""
+        # --- ПРОМЯНА: Стартираме сървъра ---
+        self.api_server.start()
+
         translator = get_translator()
         settings = DataManager.load_settings()
         translator.set_language(settings.get("language", "bg"))
 
         self.login_window = LoginWindow()
         self.login_window.login_successful.connect(self.show_main_window)
-        # Свързваме новия сигнал за рестарт
         self.login_window.restart_requested.connect(self.restart)
         self.login_window.show()
 
@@ -37,7 +41,6 @@ class ApplicationController:
         print(f"Потребител с роля '{user_role}' влезе в системата.")
         self.main_window = MainWindow(base_dir=BASE_DIR, user_role=user_role)
         self.main_window.logout_requested.connect(self.handle_logout)
-        # Свързваме сигнала за рестарт и от главния прозорец
         self.main_window.restart_requested.connect(self.restart)
         self.main_window.show()
 
@@ -46,6 +49,7 @@ class ApplicationController:
         if self.main_window:
             self.main_window.close()
             self.main_window = None
+        # Не спираме сървъра, за да може да се логне друг потребител
         self.start()
         
     def restart(self):
@@ -64,11 +68,9 @@ def main():
     """Основна функция за стартиране на приложението."""
     app = QApplication(sys.argv)
     
-    # --- ПРОМЯНА: Инициализираме преводача веднъж в началото ---
     translator = get_translator()
-    translator.load_translations() # Зареждаме файла translations.json
+    translator.load_translations()
     
-    # Зареждаме правилния стил при стартиране
     try:
         settings = DataManager.load_settings()
         theme = settings.get("theme", "dark")
@@ -84,7 +86,11 @@ def main():
     controller = ApplicationController(app)
     controller.start()
     
-    sys.exit(app.exec())
+    exit_code = app.exec()
+    
+    # --- ПРОМЯНА: Спираме сървъра при изход от приложението ---
+    controller.api_server.stop()
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()
