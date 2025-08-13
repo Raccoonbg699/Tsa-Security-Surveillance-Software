@@ -37,7 +37,6 @@ class MainWindow(QMainWindow):
         self.active_video_widgets = {}
         self.recording_worker = None
         self.created_pages = {}
-        self.measured_fps = {}
         
         self.scanner_thread = None
         self.scanner = None
@@ -159,7 +158,9 @@ class MainWindow(QMainWindow):
         if page_name == "live_view":
             self.start_all_streams()
         elif page_name == "recordings":
-            self.setup_recordings_page()
+            # --- ПРОМЯНА: Разделяме настройката от обновяването ---
+            self.setup_recordings_page() # Това ще се изпълни само веднъж
+            self.refresh_recordings_view() # А това ще се изпълнява всеки път
         elif page_name == "cameras":
             self.refresh_cameras_view()
         elif page_name == "settings":
@@ -209,7 +210,7 @@ class MainWindow(QMainWindow):
         if self.user_role != "Administrator":
             page.delete_button.hide()
 
-        self.refresh_recordings_view()
+        # --- ПРОМЯНА: Махаме обновяването оттук ---
         page.is_setup = True
         
     def scan_network(self):
@@ -419,14 +420,11 @@ class MainWindow(QMainWindow):
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
-        
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path = event_data.get("file_path")
-
         if not file_path or not os.path.exists(file_path):
             QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
             return
-        
         viewer = MediaViewerDialog(file_path, parent=self)
         viewer.exec()
 
@@ -435,20 +433,14 @@ class MainWindow(QMainWindow):
         if not page: return
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
-        
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path = event_data.get("file_path")
-
         if not file_path or not os.path.exists(file_path):
             QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
             return
-        
-        if sys.platform == "win32":
-            os.startfile(file_path)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", file_path])
-        else:
-            subprocess.Popen(["xdg-open", file_path])
+        if sys.platform == "win32": os.startfile(file_path)
+        elif sys.platform == "darwin": subprocess.Popen(["open", file_path])
+        else: subprocess.Popen(["xdg-open", file_path])
 
     def delete_event(self):
         page = self.created_pages.get("recordings")
