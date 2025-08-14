@@ -8,7 +8,8 @@ import cv2
 import numpy as np
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout
+    QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout,
+    QFileDialog
 )
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QIcon
@@ -22,6 +23,7 @@ from network_scanner import NetworkScanner, get_local_subnet
 from ui_media_viewer import MediaViewerDialog
 from ui_info_dialog import InfoDialog
 from ui_remote_dialogs import RemoteSystemsPage
+from remote_client import RemoteClient # Уверете се, че RemoteClient е импортиран
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
@@ -324,15 +326,12 @@ class MainWindow(QMainWindow):
         else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):
-        if self.is_remote_mode:
-            print("В отдалечен режим сме, няма да стартираме локални потоци.")
-            return
-            
         if self.video_workers: return
         page = self.created_pages.get("live_view")
         if not page: return
         page.camera_selector.clear()
         cameras_data = self.load_cameras()
+        if cameras_data is None: return # Грешката се обработва в load_cameras
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
@@ -385,14 +384,24 @@ class MainWindow(QMainWindow):
     def load_cameras(self):
         """Зарежда камерите или от локален файл, или от отдалечена система."""
         if self.is_remote_mode and self.remote_client:
-            return self.remote_client.get_cameras()
+            cameras = self.remote_client.get_cameras()
+            if cameras is None:
+                QMessageBox.critical(self, "Грешка", "Неуспешно зареждане на камери от отдалечена система.")
+                self.disconnect_from_remote()
+                return None
+            return cameras
         else:
             return DataManager.load_cameras()
 
     def load_events(self):
         """Зарежда записите или от локален файл, или от отдалечена система."""
         if self.is_remote_mode and self.remote_client:
-            return self.remote_client.get_recordings()
+            events = self.remote_client.get_recordings()
+            if events is None:
+                QMessageBox.critical(self, "Грешка", "Неуспешно зареждане на записи от отдалечена система.")
+                self.disconnect_from_remote()
+                return None
+            return events
         else:
             return DataManager.load_events()
 
@@ -402,10 +411,7 @@ class MainWindow(QMainWindow):
         page.list_widget.clear()
         
         cameras_data = self.load_cameras()
-        if cameras_data is None:
-            QMessageBox.critical(self, "Грешка", "Неуспешно зареждане на камери от отдалечена система.")
-            self.disconnect_from_remote()
-            return
+        if cameras_data is None: return
 
         for cam in cameras_data:
             status = self.translator.get_string("camera_status_active") if cam.get('is_active') else self.translator.get_string("camera_status_inactive")
@@ -425,16 +431,19 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("recordings")
         if not page: return
         
-        page.view_in_app_button.setText("Преглед в програмата")
-        page.open_in_player_button.setText("Отваряне в плейър")
-        page.open_folder_button.setText(self.translator.get_string("open_folder_button"))
-        page.info_button.setText("Информация")
-        
+        if self.is_remote_mode:
+            page.view_in_app_button.setText("Изтегли и прегледай")
+            page.open_in_player_button.hide()
+            page.open_folder_button.hide()
+            page.info_button.hide()
+        else:
+            page.view_in_app_button.setText("Преглед в програмата")
+            page.open_in_player_button.show()
+            page.open_folder_button.show()
+            page.info_button.show()
+
         all_events = self.load_events()
-        if all_events is None:
-            QMessageBox.critical(self, "Грешка", "Неуспешно зареждане на записи от отдалечена система.")
-            self.disconnect_from_remote()
-            return
+        if all_events is None: return
             
         cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
         event_types = sorted(list(set(event.get("event_type") for event in all_events)))
@@ -478,13 +487,26 @@ class MainWindow(QMainWindow):
         if not selected_items: return
         
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        file_path = event_data.get("file_path")
+        file_path_str = event_data.get("file_path")
 
-        if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path}")
+        if self.is_remote_mode:
+            save_path, _ = QFileDialog.getSaveFileName(self, "Запазване на файла", os.path.basename(file_path_str))
+            if not save_path: return
+            
+            success = self.remote_client.download_file(file_path_str, save_path)
+            if success:
+                QMessageBox.information(self, "Успех", "Файлът е изтеглен успешно.")
+                viewer = MediaViewerDialog(save_path, parent=self)
+                viewer.exec()
+            else:
+                QMessageBox.critical(self, "Грешка", "Неуспешно изтегляне на файла.")
+            return
+
+        if not file_path_str or not os.path.exists(file_path_str):
+            QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path_str}")
             return
         
-        viewer = MediaViewerDialog(file_path, parent=self)
+        viewer = MediaViewerDialog(file_path_str, parent=self)
         viewer.exec()
 
     def view_event_in_player(self):
@@ -1005,7 +1027,7 @@ class MainWindow(QMainWindow):
         current_page_widget = self.pages.currentWidget()
         if hasattr(current_page_widget, 'page_name'):
             page_name = current_page_widget.page_name
-            self.switch_to_page("cameras")
+            self.switch_to_page(page_name) # Refresh current page
 
     def disconnect_from_remote(self):
         """Превключва приложението обратно в локален режим."""

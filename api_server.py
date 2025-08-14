@@ -1,5 +1,8 @@
 import json
 import base64
+import os
+import mimetypes
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from data_manager import DataManager
@@ -46,6 +49,35 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.end_headers()
             events = DataManager.load_events()
             self.wfile.write(json.dumps(events).encode('utf-8'))
+            
+        elif self.path.startswith('/api/download'):
+            query_components = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            file_path_encoded = query_components.get("path", [None])[0]
+            if not file_path_encoded:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Bad Request: Missing path parameter")
+                return
+            
+            file_path = urllib.parse.unquote(file_path_encoded)
+            
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                try:
+                    with open(file_path, 'rb') as f:
+                        self.send_response(200)
+                        self.send_header('Content-type', mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
+                        fs = os.fstat(f.fileno())
+                        self.send_header("Content-Length", str(fs.st_size))
+                        self.end_headers()
+                        self.wfile.write(f.read())
+                except Exception as e:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(f"Server Error: {e}".encode('utf-8'))
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"File Not Found")
             
         else:
             self.send_response(404)
