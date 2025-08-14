@@ -1,15 +1,28 @@
 import json
+import base64
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from data_manager import DataManager
 
-# Проста автентикация. В бъдеще може да се замени с по-сигурна система.
 def is_authenticated(auth_header):
-    if auth_header is None:
+    """Проверява Authorization хедъра за валидни потребителски данни."""
+    if auth_header is None or not auth_header.startswith('Basic '):
         return False
-    # Тук ще добавим логика за проверка на потребителско име и парола
-    # Засега, за улеснение, ще пропуснем тази стъпка.
-    return True
+    
+    # Декодираме base64 данните
+    encoded_credentials = auth_header.split(' ')[1]
+    decoded_credentials = base64.b64decode(encoded_credentials).decode('utf-8')
+    username, password = decoded_credentials.split(':', 1)
+    
+    # Проверяваме в нашия users.json файл
+    users = DataManager.load_users()
+    for user in users:
+        if user["username"] == username and user["password"] == password:
+            # Важно: За сигурност, позволяваме достъп само на администратори
+            if user["role"] == "Administrator":
+                return True
+    
+    return False
 
 class ApiHandler(BaseHTTPRequestHandler):
     def do_GET(self):

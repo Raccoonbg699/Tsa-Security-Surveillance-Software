@@ -49,6 +49,9 @@ class MainWindow(QMainWindow):
         self.scanner_thread = None
         self.scanner = None
         self.progress_dialog = None
+        
+        self.remote_client = None
+        self.is_remote_mode = False
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -72,7 +75,11 @@ class MainWindow(QMainWindow):
         btn_recordings = self.create_nav_button(self.translator.get_string("recordings"), "icons/archive.png")
         self.btn_users = self.create_nav_button(self.translator.get_string("users"), "icons/user.png")
         btn_settings = self.create_nav_button(self.translator.get_string("settings"), "icons/gear.png")
-        btn_remote = self.create_nav_button("Отдалечени системи", "icons/remote.png")
+        
+        self.btn_remote = self.create_nav_button("Отдалечени системи", "icons/remote.png")
+        self.btn_disconnect = self.create_nav_button("Прекъсни връзката", "icons/disconnect.png")
+        self.btn_disconnect.hide()
+        
         btn_logout = self.create_nav_button(self.translator.get_string("logout"), "icons/logout.png")
 
         sidebar_layout.addWidget(btn_live_view)
@@ -81,7 +88,8 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch()
         sidebar_layout.addWidget(self.btn_users)
         sidebar_layout.addWidget(btn_settings)
-        sidebar_layout.addWidget(btn_remote)
+        sidebar_layout.addWidget(self.btn_remote)
+        sidebar_layout.addWidget(self.btn_disconnect)
         sidebar_layout.addWidget(btn_logout)
 
         btn_live_view.clicked.connect(self.show_live_view_page)
@@ -89,7 +97,8 @@ class MainWindow(QMainWindow):
         btn_recordings.clicked.connect(self.show_recordings_page)
         self.btn_users.clicked.connect(self.show_users_page)
         btn_settings.clicked.connect(self.show_settings_page)
-        btn_remote.clicked.connect(self.show_remote_systems_dialog)
+        self.btn_remote.clicked.connect(self.show_remote_systems_dialog)
+        self.btn_disconnect.clicked.connect(self.disconnect_from_remote)
         btn_logout.clicked.connect(self.logout_requested.emit)
         
         self.apply_role_permissions()
@@ -100,7 +109,7 @@ class MainWindow(QMainWindow):
     def create_nav_button(self, text, relative_icon_path):
         button = QPushButton(text)
         button.setObjectName("NavButton")
-        if "logout" not in relative_icon_path and "remote" not in relative_icon_path:
+        if "logout" not in relative_icon_path and "remote" not in relative_icon_path and "disconnect" not in relative_icon_path:
             button.setCheckable(True)
             button.setAutoExclusive(True)
         
@@ -140,12 +149,6 @@ class MainWindow(QMainWindow):
                 page.delete_button.clicked.connect(self.delete_camera)
                 page.scan_button.clicked.connect(self.scan_network)
                 page.search_input.textChanged.connect(self.filter_cameras_list)
-                if self.user_role != "Administrator":
-                    page.add_button.hide()
-                    page.edit_button.hide()
-                    page.delete_button.hide()
-                    page.scan_button.hide()
-                    page.search_input.hide()
             elif page_name == "recordings":
                 page = RecordingsPage()
                 page.page_name = page_name
@@ -227,8 +230,10 @@ class MainWindow(QMainWindow):
         page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
         page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
         
-        if self.user_role != "Administrator":
+        if self.user_role != "Administrator" or self.is_remote_mode:
             page.delete_button.hide()
+        else:
+            page.delete_button.show()
 
         page.is_setup = True
         
@@ -319,11 +324,15 @@ class MainWindow(QMainWindow):
         else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):
+        if self.is_remote_mode:
+            print("В отдалечен режим сме, няма да стартираме локални потоци.")
+            return
+            
         if self.video_workers: return
         page = self.created_pages.get("live_view")
         if not page: return
         page.camera_selector.clear()
-        cameras_data = DataManager.load_cameras()
+        cameras_data = self.load_cameras()
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
@@ -348,7 +357,7 @@ class MainWindow(QMainWindow):
         print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
         if cam_id in self.video_workers:
             self.video_workers.pop(cam_id, None)
-            cameras_data = DataManager.load_cameras()
+            cameras_data = self.load_cameras()
             cam_data = next((c for c in cameras_data if c.get("id") == cam_id), None)
             frame_widget = self.active_video_widgets.get(cam_id)
             if cam_data and frame_widget:
@@ -373,11 +382,31 @@ class MainWindow(QMainWindow):
             widget.deleteLater()
         self.active_video_widgets.clear()
     
+    def load_cameras(self):
+        """Зарежда камерите или от локален файл, или от отдалечена система."""
+        if self.is_remote_mode and self.remote_client:
+            return self.remote_client.get_cameras()
+        else:
+            return DataManager.load_cameras()
+
+    def load_events(self):
+        """Зарежда записите или от локален файл, или от отдалечена система."""
+        if self.is_remote_mode and self.remote_client:
+            return self.remote_client.get_recordings()
+        else:
+            return DataManager.load_events()
+
     def refresh_cameras_view(self):
         page = self.created_pages.get("cameras")
         if not page: return
         page.list_widget.clear()
-        cameras_data = DataManager.load_cameras()
+        
+        cameras_data = self.load_cameras()
+        if cameras_data is None:
+            QMessageBox.critical(self, "Грешка", "Неуспешно зареждане на камери от отдалечена система.")
+            self.disconnect_from_remote()
+            return
+
         for cam in cameras_data:
             status = self.translator.get_string("camera_status_active") if cam.get('is_active') else self.translator.get_string("camera_status_inactive")
             motion = self.translator.get_string("motion_detection_on") if cam.get('motion_enabled') else self.translator.get_string("motion_detection_off")
@@ -385,6 +414,12 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, cam)
             page.list_widget.addItem(item)
+            
+        is_admin_local = (self.user_role == "Administrator" and not self.is_remote_mode)
+        page.add_button.setVisible(is_admin_local)
+        page.edit_button.setVisible(is_admin_local)
+        page.delete_button.setVisible(is_admin_local)
+        page.scan_button.setVisible(is_admin_local)
     
     def refresh_recordings_view(self):
         page = self.created_pages.get("recordings")
@@ -394,8 +429,13 @@ class MainWindow(QMainWindow):
         page.open_in_player_button.setText("Отваряне в плейър")
         page.open_folder_button.setText(self.translator.get_string("open_folder_button"))
         page.info_button.setText("Информация")
-
-        all_events = DataManager.load_events()
+        
+        all_events = self.load_events()
+        if all_events is None:
+            QMessageBox.critical(self, "Грешка", "Неуспешно зареждане на записи от отдалечена система.")
+            self.disconnect_from_remote()
+            return
+            
         cameras = sorted(list(set(event.get("camera_name") for event in all_events)))
         event_types = sorted(list(set(event.get("event_type") for event in all_events)))
         page.camera_filter.blockSignals(True)
@@ -418,7 +458,10 @@ class MainWindow(QMainWindow):
         if cam_filter == self.translator.get_string("all_cameras_filter"): cam_filter = ""
         if type_filter == self.translator.get_string("all_types_filter"): type_filter = ""
         page.list_widget.clear()
-        all_events = DataManager.load_events()
+
+        all_events = self.load_events()
+        if all_events is None: return
+
         for event in all_events:
             cam_match = cam_filter == "" or cam_filter == event.get("camera_name")
             type_match = type_filter == "" or type_filter == event.get("event_type")
@@ -949,8 +992,33 @@ class MainWindow(QMainWindow):
         dialog.connection_successful.connect(self.connect_to_remote_system)
         dialog.exec()
 
-    def connect_to_remote_system(self, system_data):
-        """Логика за превключване към отдалечена система (засега само съобщение)."""
-        print(f"Ще се свържем към: {system_data['name']} на IP: {system_data['ip']}")
-        # Тук в следващите стъпки ще добавим сложната логика за превключване
-        # на цялото приложение в отдалечен режим.
+    def connect_to_remote_system(self, client):
+        """Превключва приложението в отдалечен режим."""
+        self.is_remote_mode = True
+        self.remote_client = client
+        
+        self.btn_remote.hide()
+        self.btn_disconnect.show()
+        
+        self.setWindowTitle(f"{self.translator.get_string('main_window_title')} - [ОТДАЛЕЧЕН РЕЖИМ]")
+        
+        current_page_widget = self.pages.currentWidget()
+        if hasattr(current_page_widget, 'page_name'):
+            page_name = current_page_widget.page_name
+            self.switch_to_page("cameras")
+
+    def disconnect_from_remote(self):
+        """Превключва приложението обратно в локален режим."""
+        self.is_remote_mode = False
+        self.remote_client = None
+        
+        self.stop_all_streams()
+        
+        self.btn_remote.show()
+        self.btn_disconnect.hide()
+        self.setWindowTitle(self.translator.get_string("main_window_title"))
+
+        current_page_widget = self.pages.currentWidget()
+        if hasattr(current_page_widget, 'page_name'):
+            page_name = current_page_widget.page_name
+            self.switch_to_page(page_name)
