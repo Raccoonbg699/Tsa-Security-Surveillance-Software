@@ -353,7 +353,7 @@ class MainWindow(QMainWindow):
         else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):
-        self.stop_all_streams() # Първо спираме всичко, за да сме сигурни, че е чисто
+        self.stop_all_streams()
 
         page = self.created_pages.get("live_view")
         if not page: return
@@ -366,7 +366,6 @@ class MainWindow(QMainWindow):
 
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         
-        # Логиката вече е еднаква за локален и отдалечен режим
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
             page.camera_selector.addItem(cam_data["name"], cam_id)
@@ -376,7 +375,6 @@ class MainWindow(QMainWindow):
             
             self.active_video_widgets[cam_id] = frame_widget
             
-            # Винаги стартираме worker. Tailscale се грижи за връзката при отдалечен режим.
             self.start_single_worker(cam_data, frame_widget)
 
         self.update_grid_layout()
@@ -535,7 +533,20 @@ class MainWindow(QMainWindow):
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path_str = event_data.get("file_path")
 
-        if not file_path_str or (not self.is_remote_mode and not os.path.exists(file_path_str)):
+        if self.is_remote_mode:
+            save_path, _ = QFileDialog.getSaveFileName(self, "Запазване на файла", os.path.basename(file_path_str))
+            if not save_path: return
+            
+            success = self.remote_client.download_file(file_path_str, save_path)
+            if success:
+                QMessageBox.information(self, "Успех", "Файлът е изтеглен успешно.")
+                viewer = MediaViewerDialog(save_path, parent=self)
+                viewer.exec()
+            else:
+                QMessageBox.critical(self, "Грешка", "Неуспешно изтегляне на файла.")
+            return
+
+        if not file_path_str or not os.path.exists(file_path_str):
             QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path_str}")
             return
         
@@ -756,7 +767,9 @@ class MainWindow(QMainWindow):
             widget.hide()
             widget.setParent(None)
 
+        all_widgets = list(self.active_video_widgets.values())
         widgets_to_show = []
+
         if page.grid_1x1_button.isChecked():
             page.camera_selector.show()
             selected_cam_id = page.camera_selector.currentData()
@@ -766,12 +779,17 @@ class MainWindow(QMainWindow):
             cols = 1
         else:
             page.camera_selector.hide()
-            all_widgets = list(self.active_video_widgets.values())
             cols = 2 if page.grid_2x2_button.isChecked() else 3
             limit = 4 if page.grid_2x2_button.isChecked() else 9
             widgets_to_show = all_widgets[:limit]
 
         if not widgets_to_show: return
+
+        # Изчистваме layout-a преди да добавим новите
+        while page.grid_layout.count():
+            child = page.grid_layout.takeAt(0)
+            if child.widget():
+                child.widget().setParent(None)
 
         for idx, widget in enumerate(widgets_to_show):
             row, col = idx // cols, idx % cols
@@ -810,7 +828,6 @@ class MainWindow(QMainWindow):
         
         if self.is_remote_mode and page.grid_1x1_button.isChecked():
             cam_id = page.camera_selector.currentData()
-            # В отдалечен режим нямаме 'worker', връщаме само уиджета
             return None, self.active_video_widgets.get(cam_id)
 
         if not self.active_video_widgets: return None, None
@@ -1087,15 +1104,16 @@ class MainWindow(QMainWindow):
             self.recording_worker.add_frame(canvas)
 
     def add_event(self, camera_id, event_type, file_path):
-        cameras = DataManager.load_cameras()
+        cameras = self.load_cameras() # Използваме load_cameras, за да работи и в двата режима
+        if cameras is None: return
+        
         camera_name = "Неизвестна камера"
         if camera_id == "grid":
             camera_name = "Мрежа"
         else:
-            for cam in cameras:
-                if cam.get("id") == camera_id:
-                    camera_name = cam.get("name")
-                    break
+            cam = next((c for c in cameras if c.get("id") == camera_id), None)
+            if cam:
+                camera_name = cam.get("name")
         
         new_event = {
             "event_id": str(uuid.uuid4()),
