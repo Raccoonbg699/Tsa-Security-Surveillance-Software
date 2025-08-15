@@ -29,47 +29,73 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.command_queue = command_queue
         super().__init__(*args, **kwargs)
 
-    def _send_response(self, code, content, content_type='application/json'):
+    def _send_json_response(self, code, content):
         self.send_response(code)
-        self.send_header('Content-type', content_type)
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(content.encode('utf-8'))
+        self.wfile.write(json.dumps(content).encode('utf-8'))
+
+    def _send_text_response(self, code, text):
+        self.send_response(code)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(text.encode('utf-8'))
 
     def do_GET(self):
         auth_header = self.headers.get('Authorization')
         if not is_authenticated(auth_header):
-            self._send_response(401, "Unauthorized", 'text/plain')
+            self._send_text_response(401, "Unauthorized")
             return
 
-        if self.path == '/api/cameras':
-            cameras = DataManager.load_cameras()
-            self._send_response(200, json.dumps(cameras))
+        parsed_path = urllib.parse.urlparse(self.path)
         
-        elif self.path == '/api/recordings':
+        if parsed_path.path == '/api/cameras':
+            cameras = DataManager.load_cameras()
+            self._send_json_response(200, cameras)
+        
+        elif parsed_path.path == '/api/recordings':
             events = DataManager.load_events()
-            self._send_response(200, json.dumps(events))
+            self._send_json_response(200, events)
             
+        elif parsed_path.path.startswith('/api/download'):
+            query_components = urllib.parse.parse_qs(parsed_path.query)
+            file_path_encoded = query_components.get("path", [None])[0]
+            if not file_path_encoded:
+                self._send_text_response(400, "Bad Request: Missing path parameter")
+                return
+            
+            file_path = urllib.parse.unquote(file_path_encoded)
+            
+            if os.path.exists(file_path) and os.path.isfile(file_path):
+                try:
+                    with open(file_path, 'rb') as f:
+                        self.send_response(200)
+                        self.send_header('Content-type', mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
+                        fs = os.fstat(f.fileno())
+                        self.send_header("Content-Length", str(fs.st_size))
+                        self.end_headers()
+                        self.wfile.write(f.read())
+                except Exception as e:
+                    self._send_text_response(500, f"Server Error: {e}")
+            else:
+                self._send_text_response(404, "File Not Found")
         else:
-            self._send_response(404, "Not Found", 'text/plain')
+            self._send_text_response(404, "Not Found")
 
     def do_POST(self):
         auth_header = self.headers.get('Authorization')
         if not is_authenticated(auth_header):
-            self._send_response(401, "Unauthorized", 'text/plain')
+            self._send_text_response(401, "Unauthorized")
             return
 
         if self.path == '/api/action':
             content_len = int(self.headers.get('Content-Length'))
             post_body = self.rfile.read(content_len)
             data = json.loads(post_body)
-            
-            # Поставяме командата в опашката за обработка от главната нишка
             self.command_queue.put(data)
-            
-            self._send_response(200, json.dumps({"status": "ok", "message": "Command queued."}))
+            self._send_json_response(200, {"status": "ok", "message": "Command queued."})
         else:
-            self._send_response(404, "Not Found", 'text/plain')
-
+            self._send_text_response(404, "Not Found")
 
 class ApiServer:
     def __init__(self, command_queue, host='0.0.0.0', port=8989):
