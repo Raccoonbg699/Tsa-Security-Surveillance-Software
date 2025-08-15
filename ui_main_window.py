@@ -613,41 +613,57 @@ class MainWindow(QMainWindow):
 
     def delete_event(self, remote_event_id=None):
         page = self.created_pages.get("recordings")
-        if not page: return
+        if not page and not remote_event_id: return
+
+        event_to_delete = None
 
         if remote_event_id:
-             all_events = DataManager.load_events()
-             event_to_delete = next((e for e in all_events if e.get("event_id") == remote_event_id), None)
-             if not event_to_delete:
-                  print(f"Remote delete request for non-existent event ID: {remote_event_id}")
-                  return
-        else:
-            selected_items = page.list_widget.selectedItems()
-            if not selected_items: return
-            event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            # Команда от API сървъра. Няма GUI.
+            all_events = DataManager.load_events()
+            event_to_delete = next((e for e in all_events if e.get("event_id") == remote_event_id), None)
+            if not event_to_delete:
+                print(f"Remote delete request for non-existent event ID: {remote_event_id}")
+                return
+            self._perform_delete(event_to_delete) # Директно изтриване
+            return
+
+        # Действие от потребителя в GUI
+        selected_items = page.list_widget.selectedItems()
+        if not selected_items: return
+        event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
         if self.is_remote_mode:
+            # Изпращане на команда към отдалечения сървър
             payload = {"event_id": event_to_delete.get("event_id")}
             self.remote_client.send_action("delete_event", payload)
+            # Опресняване след кратко забавяне
             QTimer.singleShot(500, self.refresh_recordings_view)
             return
 
-        reply = QMessageBox.question(self, "Потвърждение", "Сигурни ли сте?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        # Локално действие от потребителя
+        reply = QMessageBox.question(self, "Потвърждение", f"Сигурни ли сте, че искате да изтриете записа?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
-            all_events = DataManager.load_events()
-            updated_events = [e for e in all_events if e.get("event_id") != event_to_delete.get("event_id")]
-            
-            try:
-                file_to_delete = event_to_delete.get("file_path")
-                if file_to_delete and os.path.exists(file_to_delete):
-                    os.remove(file_to_delete)
-                    print(f"Изтрит файл: {file_to_delete}")
-            except Exception as e:
-                print(f"Грешка при изтриване на файл: {e}")
+            self._perform_delete(event_to_delete)
 
-            DataManager.save_events(updated_events)
+    def _perform_delete(self, event_to_delete):
+        """Помощен метод, който реално извършва изтриването."""
+        all_events = DataManager.load_events()
+        updated_events = [e for e in all_events if e.get("event_id") != event_to_delete.get("event_id")]
+        
+        # Изтриване на файла от диска
+        try:
+            file_to_delete = event_to_delete.get("file_path")
+            if file_to_delete and os.path.exists(file_to_delete):
+                os.remove(file_to_delete)
+                print(f"Изтрит файл: {file_to_delete}")
+        except Exception as e:
+            print(f"Грешка при изтриване на файл: {e}")
+
+        DataManager.save_events(updated_events)
+        
+        # Опресняване на изгледа, ако е видим
+        if "recordings" in self.created_pages and self.pages.currentWidget() == self.created_pages["recordings"]:
             self.refresh_recordings_view()
-
 
     def add_camera(self):
         dialog = CameraDialog(parent=self)
@@ -1104,7 +1120,7 @@ class MainWindow(QMainWindow):
             self.recording_worker.add_frame(canvas)
 
     def add_event(self, camera_id, event_type, file_path):
-        cameras = self.load_cameras() # Използваме load_cameras, за да работи и в двата режима
+        cameras = self.load_cameras()
         if cameras is None: return
         
         camera_name = "Неизвестна камера"
