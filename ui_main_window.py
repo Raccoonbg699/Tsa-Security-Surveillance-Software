@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime
 import cv2
 import numpy as np
+from queue import Empty
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout,
@@ -23,17 +24,18 @@ from network_scanner import NetworkScanner, get_local_subnet
 from ui_media_viewer import MediaViewerDialog
 from ui_info_dialog import InfoDialog
 from ui_remote_dialogs import RemoteSystemsPage
-from remote_client import RemoteClient # Уверете се, че RemoteClient е импортиран
+from remote_client import RemoteClient
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
     restart_requested = Signal()
 
-    def __init__(self, base_dir, user_role):
+    def __init__(self, base_dir, user_role, command_queue):
         super().__init__()
         self.translator = get_translator()
         self.base_dir = base_dir
         self.user_role = user_role
+        self.command_queue = command_queue
         
         self.setWindowTitle(self.translator.get_string("main_window_title"))
         self.setGeometry(100, 100, 1280, 720)
@@ -54,6 +56,10 @@ class MainWindow(QMainWindow):
         
         self.remote_client = None
         self.is_remote_mode = False
+
+        self.command_timer = QTimer(self)
+        self.command_timer.timeout.connect(self.process_command_queue)
+        self.command_timer.start(250)
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -108,6 +114,26 @@ class MainWindow(QMainWindow):
         btn_live_view.setChecked(True)
         self.show_live_view_page()
     
+    def process_command_queue(self):
+        try:
+            command = self.command_queue.get_nowait()
+            action = command.get("action")
+            payload = command.get("payload")
+            
+            print(f"Received command: {action} with payload: {payload}")
+
+            if action == "snapshot":
+                self.take_snapshot(remote_camera_id=payload.get("camera_id"))
+            elif action == "toggle_record":
+                 self.toggle_manual_recording(payload.get("state"), remote_camera_id=payload.get("camera_id"))
+            elif action == "delete_event":
+                self.delete_event(remote_event_id=payload.get("event_id"))
+
+        except Empty:
+            pass
+        except Exception as e:
+            print(f"Error processing command: {e}")
+
     def create_nav_button(self, text, relative_icon_path):
         button = QPushButton(text)
         button.setObjectName("NavButton")
@@ -203,21 +229,22 @@ class MainWindow(QMainWindow):
         self.switch_to_page("settings")
         page = self.created_pages.get("settings")
         if not page: return
-        is_admin = (self.user_role == "Administrator")
-        page.path_edit.setVisible(is_admin)
-        page.browse_button.setVisible(is_admin)
-        page.recording_structure_combo.setVisible(is_admin)
-        page.save_button.setVisible(is_admin)
+        is_admin_local = (self.user_role == "Administrator" and not self.is_remote_mode)
+        page.path_edit.setVisible(is_admin_local)
+        page.browse_button.setVisible(is_admin_local)
+        page.recording_structure_combo.setVisible(is_admin_local)
+        page.save_button.setVisible(is_admin_local)
         form_layout = page.layout().itemAt(1)
         for i in range(form_layout.rowCount()):
             label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
             if label_item:
                 label_widget = label_item.widget()
                 if label_widget.text() in [self.translator.get_string("recordings_folder_label"), self.translator.get_string("recording_structure_label")]:
-                    label_widget.setVisible(is_admin)
+                    label_widget.setVisible(is_admin_local)
 
     def show_users_page(self):
-        if self.user_role == "Administrator": self.switch_to_page("users")
+        if self.user_role == "Administrator" and not self.is_remote_mode:
+            self.switch_to_page("users")
 
     def setup_recordings_page(self):
         page = self.created_pages.get("recordings")
@@ -232,10 +259,10 @@ class MainWindow(QMainWindow):
         page.camera_filter.currentIndexChanged.connect(self.apply_event_filters)
         page.event_type_filter.currentIndexChanged.connect(self.apply_event_filters)
         
-        if self.user_role != "Administrator" or self.is_remote_mode:
-            page.delete_button.hide()
-        else:
+        if self.user_role == "Administrator":
             page.delete_button.show()
+        else:
+            page.delete_button.hide()
 
         page.is_setup = True
         
@@ -326,20 +353,32 @@ class MainWindow(QMainWindow):
         else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
     def start_all_streams(self):
-        if self.video_workers: return
+        self.stop_all_streams() # Първо спираме всичко, за да сме сигурни, че е чисто
+
         page = self.created_pages.get("live_view")
         if not page: return
         page.camera_selector.clear()
+
         cameras_data = self.load_cameras()
-        if cameras_data is None: return # Грешката се обработва в load_cameras
+        if cameras_data is None:
+            print("Неуспешно зареждане на камери.")
+            return
+
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
+        
+        # Логиката вече е еднаква за локален и отдалечен режим
         for cam_data in active_cameras:
             cam_id = cam_data.get("id")
             page.camera_selector.addItem(cam_data["name"], cam_id)
+            
             frame_widget = VideoFrame(camera_name=cam_data.get("name"), camera_id=cam_id)
             frame_widget.double_clicked.connect(self.toggle_fullscreen_camera)
-            self.start_single_worker(cam_data, frame_widget)
+            
             self.active_video_widgets[cam_id] = frame_widget
+            
+            # Винаги стартираме worker. Tailscale се грижи за връзката при отдалечен режим.
+            self.start_single_worker(cam_data, frame_widget)
+
         self.update_grid_layout()
 
     def start_single_worker(self, cam_data, frame_widget):
@@ -357,6 +396,7 @@ class MainWindow(QMainWindow):
         if cam_id in self.video_workers:
             self.video_workers.pop(cam_id, None)
             cameras_data = self.load_cameras()
+            if cameras_data is None: return
             cam_data = next((c for c in cameras_data if c.get("id") == cam_id), None)
             frame_widget = self.active_video_widgets.get(cam_id)
             if cam_data and frame_widget:
@@ -372,13 +412,19 @@ class MainWindow(QMainWindow):
             self.recording_worker.stop()
             self.recording_worker.wait()
             self.recording_worker = None
-        if not self.video_workers: return
+        
         for worker in self.video_workers.values():
             worker.stop()
             worker.wait()
         self.video_workers.clear()
-        for widget in self.active_video_widgets.values():
-            widget.deleteLater()
+        
+        page = self.created_pages.get("live_view")
+        if page:
+            while page.grid_layout.count():
+                child = page.grid_layout.takeAt(0)
+                if child.widget():
+                    child.widget().deleteLater()
+        
         self.active_video_widgets.clear()
     
     def load_cameras(self):
@@ -432,7 +478,7 @@ class MainWindow(QMainWindow):
         if not page: return
         
         if self.is_remote_mode:
-            page.view_in_app_button.setText("Изтегли и прегледай")
+            page.view_in_app_button.setText("Преглед (Изтегляне)")
             page.open_in_player_button.hide()
             page.open_folder_button.hide()
             page.info_button.hide()
@@ -441,7 +487,7 @@ class MainWindow(QMainWindow):
             page.open_in_player_button.show()
             page.open_folder_button.show()
             page.info_button.show()
-
+            
         all_events = self.load_events()
         if all_events is None: return
             
@@ -489,20 +535,7 @@ class MainWindow(QMainWindow):
         event_data = selected_items[0].data(Qt.ItemDataRole.UserRole)
         file_path_str = event_data.get("file_path")
 
-        if self.is_remote_mode:
-            save_path, _ = QFileDialog.getSaveFileName(self, "Запазване на файла", os.path.basename(file_path_str))
-            if not save_path: return
-            
-            success = self.remote_client.download_file(file_path_str, save_path)
-            if success:
-                QMessageBox.information(self, "Успех", "Файлът е изтеглен успешно.")
-                viewer = MediaViewerDialog(save_path, parent=self)
-                viewer.exec()
-            else:
-                QMessageBox.critical(self, "Грешка", "Неуспешно изтегляне на файла.")
-            return
-
-        if not file_path_str or not os.path.exists(file_path_str):
+        if not file_path_str or (not self.is_remote_mode and not os.path.exists(file_path_str)):
             QMessageBox.warning(self, "Грешка", f"Файлът не е намерен:\n{file_path_str}")
             return
         
@@ -567,18 +600,43 @@ class MainWindow(QMainWindow):
         info_dialog = InfoDialog(file_path, parent=self)
         info_dialog.exec()
 
-    def delete_event(self):
+    def delete_event(self, remote_event_id=None):
         page = self.created_pages.get("recordings")
         if not page: return
-        selected_items = page.list_widget.selectedItems()
-        if not selected_items: return
-        event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+        if remote_event_id:
+             all_events = DataManager.load_events()
+             event_to_delete = next((e for e in all_events if e.get("event_id") == remote_event_id), None)
+             if not event_to_delete:
+                  print(f"Remote delete request for non-existent event ID: {remote_event_id}")
+                  return
+        else:
+            selected_items = page.list_widget.selectedItems()
+            if not selected_items: return
+            event_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
+        if self.is_remote_mode:
+            payload = {"event_id": event_to_delete.get("event_id")}
+            self.remote_client.send_action("delete_event", payload)
+            QTimer.singleShot(500, self.refresh_recordings_view)
+            return
+
         reply = QMessageBox.question(self, "Потвърждение", "Сигурни ли сте?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             all_events = DataManager.load_events()
             updated_events = [e for e in all_events if e.get("event_id") != event_to_delete.get("event_id")]
+            
+            try:
+                file_to_delete = event_to_delete.get("file_path")
+                if file_to_delete and os.path.exists(file_to_delete):
+                    os.remove(file_to_delete)
+                    print(f"Изтрит файл: {file_to_delete}")
+            except Exception as e:
+                print(f"Грешка при изтриване на файл: {e}")
+
             DataManager.save_events(updated_events)
             self.refresh_recordings_view()
+
 
     def add_camera(self):
         dialog = CameraDialog(parent=self)
@@ -692,23 +750,29 @@ class MainWindow(QMainWindow):
     def update_grid_layout(self):
         page = self.created_pages.get("live_view")
         if not page: return
+        
+        # Скриваме всички уиджети, без да ги трием
         for widget in self.active_video_widgets.values():
             widget.hide()
             widget.setParent(None)
-        all_widgets = list(self.active_video_widgets.values())
+
         widgets_to_show = []
         if page.grid_1x1_button.isChecked():
             page.camera_selector.show()
             selected_cam_id = page.camera_selector.currentData()
-            if selected_cam_id and selected_cam_id in self.active_video_widgets:
-                widgets_to_show.append(self.active_video_widgets[selected_cam_id])
+            widget_to_show = self.active_video_widgets.get(selected_cam_id)
+            if widget_to_show:
+                widgets_to_show.append(widget_to_show)
             cols = 1
         else:
             page.camera_selector.hide()
+            all_widgets = list(self.active_video_widgets.values())
             cols = 2 if page.grid_2x2_button.isChecked() else 3
             limit = 4 if page.grid_2x2_button.isChecked() else 9
             widgets_to_show = all_widgets[:limit]
+
         if not widgets_to_show: return
+
         for idx, widget in enumerate(widgets_to_show):
             row, col = idx // cols, idx % cols
             page.grid_layout.addWidget(widget, row, col)
@@ -737,10 +801,20 @@ class MainWindow(QMainWindow):
         if widget:
             widget.set_motion_state(True)
             
-    def get_camera_to_control(self):
+    def get_camera_to_control(self, remote_camera_id=None):
+        if remote_camera_id:
+             return self.video_workers.get(remote_camera_id), self.active_video_widgets.get(remote_camera_id)
+
         page = self.created_pages.get("live_view")
-        if not page or not self.active_video_widgets:
-            return None, None
+        if not page: return None, None
+        
+        if self.is_remote_mode and page.grid_1x1_button.isChecked():
+            cam_id = page.camera_selector.currentData()
+            # В отдалечен режим нямаме 'worker', връщаме само уиджета
+            return None, self.active_video_widgets.get(cam_id)
+
+        if not self.active_video_widgets: return None, None
+        
         cam_id = None
         if page.grid_1x1_button.isChecked():
             cam_id = page.camera_selector.currentData()
@@ -784,12 +858,54 @@ class MainWindow(QMainWindow):
                 visible_widgets.append(widget)
         return visible_widgets
 
-    def take_snapshot(self):
+    def take_snapshot(self, remote_camera_id=None):
         page = self.created_pages.get("live_view")
         if not page: return
 
-        if page.grid_1x1_button.isChecked():
-            worker, _ = self.get_camera_to_control()
+        cam_id = None
+        if remote_camera_id:
+            cam_id = remote_camera_id
+        elif page.grid_1x1_button.isChecked():
+            cam_id = page.camera_selector.currentData()
+        else:
+            cam_id = "grid"
+        
+        if self.is_remote_mode:
+            payload = {"camera_id": cam_id}
+            self.remote_client.send_action("snapshot", payload)
+            print(f"Изпратена заявка за снимка към отдалечена система за камера: {cam_id}")
+            return
+
+        if cam_id == "grid":
+            visible_widgets = self.get_visible_widgets()
+            if not visible_widgets: return
+            cols = 2 if page.grid_2x2_button.isChecked() else 3
+            rows = (len(visible_widgets) + cols - 1) // cols
+            
+            first_worker = self.video_workers.get(visible_widgets[0].camera_id)
+            if not first_worker: return
+            sample_frame = first_worker.get_latest_frame()
+            if sample_frame is None: return
+            h, w, _ = sample_frame.shape
+
+            canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
+            for i, widget in enumerate(visible_widgets):
+                worker = self.video_workers.get(widget.camera_id)
+                if worker:
+                    frame = worker.get_latest_frame()
+                    if frame is not None:
+                        row, col = i // cols, i % cols
+                        canvas[row*h:(row+1)*h, col*w:(col+1)*w] = frame
+
+            settings = DataManager.load_settings()
+            recording_path = Path(settings.get("recording_path"))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = recording_path / f"snap_grid_{timestamp}.jpg"
+            cv2.imwrite(str(filename), canvas)
+            print(f"Снимка на мрежата е запазена: {filename}")
+            self.add_event("grid", "Снимка (мрежа)", str(filename))
+        else:
+            worker, _ = self.get_camera_to_control(remote_camera_id=cam_id)
             if worker:
                 frame = worker.get_latest_frame()
                 if frame is not None:
@@ -800,58 +916,41 @@ class MainWindow(QMainWindow):
                     cv2.imwrite(str(filename), frame)
                     print(f"Снимка запазена: {filename}")
                     self.add_event(worker.camera_data['id'], "Снимка", str(filename))
-            return
 
-        visible_widgets = self.get_visible_widgets()
-        if not visible_widgets: return
-        cols = 2 if page.grid_2x2_button.isChecked() else 3
-        rows = (len(visible_widgets) + cols - 1) // cols
-        
-        first_worker = self.video_workers.get(visible_widgets[0].camera_id)
-        if not first_worker: return
-        sample_frame = first_worker.get_latest_frame()
-        if sample_frame is None: return
-        h, w, _ = sample_frame.shape
-
-        canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
-        for i, widget in enumerate(visible_widgets):
-            worker = self.video_workers.get(widget.camera_id)
-            if worker:
-                frame = worker.get_latest_frame()
-                if frame is not None:
-                    row, col = i // cols, i % cols
-                    canvas[row*h:(row+1)*h, col*w:(col+1)*w] = frame
-
-        settings = DataManager.load_settings()
-        recording_path = Path(settings.get("recording_path"))
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = recording_path / f"snap_grid_{timestamp}.jpg"
-        cv2.imwrite(str(filename), canvas)
-        print(f"Снимка на мрежата е запазена: {filename}")
-        self.add_event("grid", "Снимка (мрежа)", str(filename))
-
-    def toggle_manual_recording(self, is_recording):
+    def toggle_manual_recording(self, is_recording, remote_camera_id=None):
         page = self.created_pages.get("live_view")
         if not page: return
-        
-        if page.grid_1x1_button.isChecked():
-            self.toggle_single_camera_recording(is_recording)
+
+        cam_id = None
+        if remote_camera_id:
+             cam_id = remote_camera_id
+        elif page.grid_1x1_button.isChecked():
+            cam_id = page.camera_selector.currentData()
+        else:
+            cam_id = "grid"
+
+        if self.is_remote_mode:
+            payload = {"camera_id": cam_id, "state": is_recording}
+            self.remote_client.send_action("toggle_record", payload)
+            print(f"Изпратена заявка за запис към отдалечена система за камера: {cam_id}, състояние: {is_recording}")
             return
             
-        if is_recording:
-            self.start_grid_recording()
+        if cam_id == "grid":
+             if is_recording: self.start_grid_recording()
+             else: self.stop_grid_recording()
         else:
-            self.stop_grid_recording()
+            self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
 
-    def toggle_single_camera_recording(self, is_recording):
+    def toggle_single_camera_recording(self, is_recording, remote_camera_id=None):
         page = self.created_pages.get("live_view")
-        worker, widget = self.get_camera_to_control()
+        worker, widget = self.get_camera_to_control(remote_camera_id=remote_camera_id)
         if not worker or not widget: 
-            if page: page.record_button.setChecked(False)
+            if page and not remote_camera_id: page.record_button.setChecked(False)
             return
 
         if is_recording:
-            page.record_button.setText(self.translator.get_string("stop_record_button"))
+            if not remote_camera_id:
+                page.record_button.setText(self.translator.get_string("stop_record_button"))
             if self.recording_worker: return
             recording_path = self.get_recording_path_for_camera(worker)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -859,7 +958,7 @@ class MainWindow(QMainWindow):
             filename = recording_path / f"rec_{safe_name}_{timestamp}.mp4"
             frame = worker.get_latest_frame()
             if frame is None:
-                page.record_button.setChecked(False)
+                if page and not remote_camera_id: page.record_button.setChecked(False)
                 return
             height, width, _ = frame.shape
             recording_fps = 20.0
@@ -870,7 +969,8 @@ class MainWindow(QMainWindow):
             self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
             print(f"Ръчен запис стартиран: {filename}")
         else:
-            page.record_button.setText(self.translator.get_string("record_button"))
+            if not remote_camera_id:
+                page.record_button.setText(self.translator.get_string("record_button"))
             if self.recording_worker:
                 try: worker.FrameForRecording.disconnect(self.handle_single_frame_for_recording)
                 except (TypeError, RuntimeError): pass
@@ -1016,6 +1116,7 @@ class MainWindow(QMainWindow):
 
     def connect_to_remote_system(self, client):
         """Превключва приложението в отдалечен режим."""
+        self.stop_all_streams()
         self.is_remote_mode = True
         self.remote_client = client
         
@@ -1027,7 +1128,7 @@ class MainWindow(QMainWindow):
         current_page_widget = self.pages.currentWidget()
         if hasattr(current_page_widget, 'page_name'):
             page_name = current_page_widget.page_name
-            self.switch_to_page(page_name) # Refresh current page
+            self.switch_to_page(page_name)
 
     def disconnect_from_remote(self):
         """Превключва приложението обратно в локален режим."""

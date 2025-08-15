@@ -12,80 +12,68 @@ def is_authenticated(auth_header):
     if auth_header is None or not auth_header.startswith('Basic '):
         return False
     
-    # Декодираме base64 данните
     encoded_credentials = auth_header.split(' ')[1]
     decoded_credentials = base64.b64decode(encoded_credentials).decode('utf-8')
     username, password = decoded_credentials.split(':', 1)
     
-    # Проверяваме в нашия users.json файл
     users = DataManager.load_users()
     for user in users:
         if user["username"] == username and user["password"] == password:
-            # Важно: За сигурност, позволяваме достъп само на администратори
             if user["role"] == "Administrator":
                 return True
     
     return False
 
 class ApiHandler(BaseHTTPRequestHandler):
+    def __init__(self, command_queue, *args, **kwargs):
+        self.command_queue = command_queue
+        super().__init__(*args, **kwargs)
+
+    def _send_response(self, code, content, content_type='application/json'):
+        self.send_response(code)
+        self.send_header('Content-type', content_type)
+        self.end_headers()
+        self.wfile.write(content.encode('utf-8'))
+
     def do_GET(self):
         auth_header = self.headers.get('Authorization')
         if not is_authenticated(auth_header):
-            self.send_response(401)
-            self.end_headers()
-            self.wfile.write(b"Unauthorized")
+            self._send_response(401, "Unauthorized", 'text/plain')
             return
 
         if self.path == '/api/cameras':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
             cameras = DataManager.load_cameras()
-            self.wfile.write(json.dumps(cameras).encode('utf-8'))
+            self._send_response(200, json.dumps(cameras))
         
         elif self.path == '/api/recordings':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
             events = DataManager.load_events()
-            self.wfile.write(json.dumps(events).encode('utf-8'))
-            
-        elif self.path.startswith('/api/download'):
-            query_components = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            file_path_encoded = query_components.get("path", [None])[0]
-            if not file_path_encoded:
-                self.send_response(400)
-                self.end_headers()
-                self.wfile.write(b"Bad Request: Missing path parameter")
-                return
-            
-            file_path = urllib.parse.unquote(file_path_encoded)
-            
-            if os.path.exists(file_path) and os.path.isfile(file_path):
-                try:
-                    with open(file_path, 'rb') as f:
-                        self.send_response(200)
-                        self.send_header('Content-type', mimetypes.guess_type(file_path)[0] or 'application/octet-stream')
-                        fs = os.fstat(f.fileno())
-                        self.send_header("Content-Length", str(fs.st_size))
-                        self.end_headers()
-                        self.wfile.write(f.read())
-                except Exception as e:
-                    self.send_response(500)
-                    self.end_headers()
-                    self.wfile.write(f"Server Error: {e}".encode('utf-8'))
-            else:
-                self.send_response(404)
-                self.end_headers()
-                self.wfile.write(b"File Not Found")
+            self._send_response(200, json.dumps(events))
             
         else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"Not Found")
+            self._send_response(404, "Not Found", 'text/plain')
+
+    def do_POST(self):
+        auth_header = self.headers.get('Authorization')
+        if not is_authenticated(auth_header):
+            self._send_response(401, "Unauthorized", 'text/plain')
+            return
+
+        if self.path == '/api/action':
+            content_len = int(self.headers.get('Content-Length'))
+            post_body = self.rfile.read(content_len)
+            data = json.loads(post_body)
+            
+            # Поставяме командата в опашката за обработка от главната нишка
+            self.command_queue.put(data)
+            
+            self._send_response(200, json.dumps({"status": "ok", "message": "Command queued."}))
+        else:
+            self._send_response(404, "Not Found", 'text/plain')
+
 
 class ApiServer:
-    def __init__(self, host='0.0.0.0', port=8989):
+    def __init__(self, command_queue, host='0.0.0.0', port=8989):
+        self.command_queue = command_queue
         self.host = host
         self.port = port
         self.server = None
@@ -97,7 +85,8 @@ class ApiServer:
             print("Сървърът вече работи.")
             return
 
-        self.server = HTTPServer((self.host, self.port), ApiHandler)
+        handler = lambda *args, **kwargs: ApiHandler(self.command_queue, *args, **kwargs)
+        self.server = HTTPServer((self.host, self.port), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         print(f"API сървърът стартира на {self.host}:{self.port}")
