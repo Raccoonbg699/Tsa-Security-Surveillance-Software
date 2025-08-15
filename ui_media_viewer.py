@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSlider
@@ -23,7 +24,7 @@ class MediaViewerDialog(QDialog):
         self.video_capture = None
         self.video_timer = QTimer(self)
         self.is_playing = False
-        self.is_slider_pressed = False # Флаг, за да знаем кога потребителят мести лентата
+        self.is_slider_pressed = False
 
         self.setWindowTitle(f"{self.translator.get_string('view_recording_button')}: {Path(self.file_path).name}")
         self.setMinimumSize(800, 600)
@@ -34,7 +35,6 @@ class MediaViewerDialog(QDialog):
         self.media_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.media_label.setStyleSheet("background-color: black;")
 
-        # --- ЛЕНТА ЗА ПРЕВЪРТАНЕ (SLIDER) ---
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setTracking(True)
         self.slider.sliderPressed.connect(self.slider_pressed)
@@ -53,7 +53,7 @@ class MediaViewerDialog(QDialog):
 
         main_layout.addWidget(self.media_label, 1)
         if self.is_video:
-            main_layout.addWidget(self.slider) # Добавяме слайдера в лейаута
+            main_layout.addWidget(self.slider)
         main_layout.addLayout(controls_layout)
 
         self.close_button.clicked.connect(self.close)
@@ -66,8 +66,27 @@ class MediaViewerDialog(QDialog):
             self.load_image()
 
     def load_image(self):
-        pixmap = QPixmap(self.file_path)
-        self.media_label.setPixmap(pixmap)
+        """По-надеждно зареждане на изображение, което работи и с не-ASCII пътища."""
+        try:
+            with open(self.file_path, "rb") as f:
+                image_data = np.frombuffer(f.read(), np.uint8)
+            
+            frame = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+
+            if frame is None:
+                raise ValueError("cv2.imdecode returned None")
+
+            rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_image.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            self.media_label.setPixmap(pixmap)
+
+        except Exception as e:
+            print(f"Грешка при зареждане на изображение '{self.file_path}': {e}")
+            self.media_label.setText("Грешка при зареждане на изображението.")
+
 
     def load_video(self):
         self.video_capture = cv2.VideoCapture(str(self.file_path))
