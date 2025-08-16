@@ -30,26 +30,33 @@ exit /b 1
 echo Found Python at: %PYTHON_PATH%
 echo.
 
+rem --- Проверка за Tailscale ---
+echo Checking for Tailscale installation...
+where tailscale.exe >nul 2>nul
+if %errorlevel% neq 0 (
+    echo Tailscale not found. The download page will now open.
+    echo Please install it and then press any key to continue.
+    start "" "https://tailscale.com/download"
+    pause
+) else (
+    echo Tailscale is already installed.
+)
+
+
 rem --- Инсталиране на зависимости ---
-echo Checking and installing required libraries...
+echo.
+echo Checking and installing required Python libraries...
 echo.
 
-echo Installing/Verifying PySide6...
 "%PYTHON_PATH%" -m pip install PySide6 --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install PySide6. & pause & exit /b 1 )
 
-echo.
-echo Installing/Verifying OpenCV...
 "%PYTHON_PATH%" -m pip install opencv-python --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install opencv-python. & pause & exit /b 1 )
 
-echo.
-echo Installing/Verifying Requests...
 "%PYTHON_PATH%" -m pip install requests --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install requests. & pause & exit /b 1 )
 
-echo.
-echo Installing/Verifying NumPy...
 "%PYTHON_PATH%" -m pip install numpy --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install numpy. & pause & exit /b 1 )
 
