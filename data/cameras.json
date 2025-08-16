@@ -4,7 +4,46 @@
         "rtsp_url": "rtsp://192.168.1.13:554/",
         "is_active": true,
         "id": "138fa105-1b93-4aa0-8a2d-56aa2a8b16b3",
-        "motion_enabled": false
+        "motion_enabled": false,
+        "username": "",
+        "password": "",
+        "schedule": {
+            "Понеделник": {
+                "enabled": false,
+                "start": "00:00",
+                "end": "00:00"
+            },
+            "Вторник": {
+                "enabled": false,
+                "start": "00:00",
+                "end": "00:00"
+            },
+            "Сряда": {
+                "enabled": false,
+                "start": "00:00",
+                "end": "00:00"
+            },
+            "Четвъртък": {
+                "enabled": false,
+                "start": "00:00",
+                "end": "00:00"
+            },
+            "Петък": {
+                "enabled": false,
+                "start": "00:00",
+                "end": "00:00"
+            },
+            "Събота": {
+                "enabled": false,
+                "start": "23:15",
+                "end": "23:38"
+            },
+            "Неделя": {
+                "enabled": false,
+                "start": "00:00",
+                "end": "00:00"
+            }
+        }
     },
     {
         "name": "Camera.192.168.1.14",

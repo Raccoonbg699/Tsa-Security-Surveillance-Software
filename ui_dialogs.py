@@ -1,7 +1,8 @@
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QVBoxLayout, QFormLayout, 
-    QLineEdit, QCheckBox, QLabel, QComboBox
+    QLineEdit, QCheckBox, QLabel, QComboBox, QTimeEdit, QGroupBox, QHBoxLayout
 )
+from PySide6.QtCore import QTime
 
 from data_manager import get_translator
 
@@ -13,7 +14,7 @@ class CameraDialog(QDialog):
         
         window_title = "Редактиране на камера" if self.is_edit_mode else "Добавяне на нова камера"
         self.setWindowTitle(window_title)
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(450)
 
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
@@ -27,6 +28,27 @@ class CameraDialog(QDialog):
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
+        # --- SCHEDULE UI ---
+        schedule_group = QGroupBox("График на записите")
+        schedule_layout = QFormLayout(schedule_group)
+        self.schedule_widgets = {}
+        days = ["Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота", "Неделя"]
+        
+        for day in days:
+            day_enabled = QCheckBox()
+            start_time = QTimeEdit(QTime(0, 0))
+            end_time = QTimeEdit(QTime(0, 0))
+            
+            time_layout = QHBoxLayout()
+            time_layout.addWidget(QLabel("от:"))
+            time_layout.addWidget(start_time)
+            time_layout.addWidget(QLabel("до:"))
+            time_layout.addWidget(end_time)
+            
+            schedule_layout.addRow(f"{day}:", day_enabled)
+            schedule_layout.addRow("", time_layout)
+            self.schedule_widgets[day] = (day_enabled, start_time, end_time)
+
         if self.is_edit_mode:
             self.name_input.setText(camera_data.get("name", ""))
             self.url_input.setText(camera_data.get("rtsp_url", ""))
@@ -34,6 +56,13 @@ class CameraDialog(QDialog):
             self.motion_checkbox.setChecked(camera_data.get("motion_enabled", True))
             self.username_input.setText(camera_data.get("username", ""))
             self.password_input.setText(camera_data.get("password", ""))
+            
+            schedule_data = camera_data.get("schedule", {})
+            for day, widgets in self.schedule_widgets.items():
+                day_data = schedule_data.get(day, {"enabled": False, "start": "00:00", "end": "00:00"})
+                widgets[0].setChecked(day_data["enabled"])
+                widgets[1].setTime(QTime.fromString(day_data["start"], "HH:mm"))
+                widgets[2].setTime(QTime.fromString(day_data["end"], "HH:mm"))
         else:
             self.status_checkbox.setChecked(True)
             self.motion_checkbox.setChecked(True)
@@ -50,16 +79,26 @@ class CameraDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
 
         main_layout.addLayout(form_layout)
+        main_layout.addWidget(schedule_group)
         main_layout.addWidget(self.button_box)
 
     def get_data(self):
+        schedule_data = {}
+        for day, widgets in self.schedule_widgets.items():
+            schedule_data[day] = {
+                "enabled": widgets[0].isChecked(),
+                "start": widgets[1].time().toString("HH:mm"),
+                "end": widgets[2].time().toString("HH:mm")
+            }
+            
         return {
             "name": self.name_input.text().strip(),
             "rtsp_url": self.url_input.text().strip(),
             "is_active": self.status_checkbox.isChecked(),
             "motion_enabled": self.motion_checkbox.isChecked(),
             "username": self.username_input.text().strip(),
-            "password": self.password_input.text()
+            "password": self.password_input.text(),
+            "schedule": schedule_data
         }
 
 class UserDialog(QDialog):

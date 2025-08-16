@@ -3,9 +3,9 @@ import time
 import uuid
 from pathlib import Path
 from datetime import datetime
-from queue import Queue, Full
+from queue import Queue, Full, Empty
 import threading
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QTimer, QTime
 from PySide6.QtGui import QImage
 
 class RecordingWorker(QThread):
@@ -14,7 +14,7 @@ class RecordingWorker(QThread):
     """
     def __init__(self, filename, width, height, fps):
         super().__init__()
-        self.frame_queue = Queue()
+        self.frame_queue = Queue(maxsize=10) # Увеличаваме малко буфера
         self._is_running = True
         self.target_fps = fps
         self.frame_duration = 1.0 / self.target_fps
@@ -29,24 +29,32 @@ class RecordingWorker(QThread):
         while self._is_running or not self.frame_queue.empty():
             try:
                 frame = self.frame_queue.get(timeout=self.frame_duration)
-                last_frame = frame
-            except Exception:
+                if frame is not None:
+                    last_frame = frame
+            except Empty:
                 if not self._is_running:
                     break
             
             if last_frame is not None and self._video_writer.isOpened():
                 current_time = time.time()
                 while next_frame_time <= current_time:
-                    self._video_writer.write(last_frame)
+                    try:
+                        self._video_writer.write(last_frame)
+                    except cv2.error as e:
+                        print(f"Грешка при запис на кадър: {e}")
                     next_frame_time += self.frame_duration
         
         if self._video_writer.isOpened():
             self._video_writer.release()
         print("Нишката за запис приключи коректно.")
 
-    def add_frame(self, frame):
-        if self.frame_queue.qsize() < 2:
-            self.frame_queue.put(frame)
+    # --- ПРОМЯНА: Методът вече приема два аргумента, за да съответства на сигнала ---
+    def add_frame(self, cam_id, frame):
+        # Игнорираме cam_id, тъй като не ни е нужен тук
+        try:
+            self.frame_queue.put_nowait(frame)
+        except Full:
+            pass # Игнорираме, ако опашката е пълна
 
     def stop(self):
         self._is_running = False
@@ -55,9 +63,8 @@ class VideoWorker(QThread):
     ImageUpdate = Signal(QImage)
     StreamStatus = Signal(str)
     MotionDetected = Signal(str)
-    # --- ПРОМЯНА: Сигналът вече изпраща ID на камера и кадър ---
     FrameForRecording = Signal(str, object)
-
+    
     def __init__(self, camera_data, recording_path):
         super().__init__()
         self.camera_data = camera_data
@@ -110,7 +117,6 @@ class VideoWorker(QThread):
             with self.frame_lock:
                 self.latest_frame = frame.copy()
             
-            # --- ПРОМЯНА: Изпращаме ID-то на камерата заедно с кадъра ---
             self.FrameForRecording.emit(self.camera_data.get("id"), frame)
             
             display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
@@ -140,11 +146,13 @@ class VideoWorker(QThread):
         self._is_running = True
         self.processing_thread.start()
         super().start()
+
     def stop(self):
         print(f"Подадена команда за спиране на нишките за {self.camera_data.get('name')}")
         self._is_running = False
         if self.processing_thread.is_alive():
             self.processing_thread.join()
+
     def get_latest_frame(self):
         with self.frame_lock:
             return self.latest_frame.copy() if self.latest_frame is not None else None

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout,
     QFileDialog
 )
-from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal, QTime
 from PySide6.QtGui import QIcon
 
 from data_manager import DataManager, get_translator
@@ -60,6 +60,12 @@ class MainWindow(QMainWindow):
         self.command_timer = QTimer(self)
         self.command_timer.timeout.connect(self.process_command_queue)
         self.command_timer.start(250)
+        
+        # --- SCHEDULE LOGIC ---
+        self.scheduled_recorders = {}
+        self.schedule_check_timer = QTimer(self)
+        self.schedule_check_timer.timeout.connect(self.check_schedules)
+        self.schedule_check_timer.start(30000)
 
         main_widget = QWidget()
         main_layout = QHBoxLayout(main_widget)
@@ -388,6 +394,67 @@ class MainWindow(QMainWindow):
         worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
         worker.start()
         self.video_workers[cam_id] = worker
+    
+    def check_schedules(self):
+        """Проверява графиците и стартира/спира записи."""
+        if self.is_remote_mode: return
+
+        now = datetime.now()
+        weekday = now.weekday()
+        days_bg = ["Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота", "Неделя"]
+        current_day_name_bg = days_bg[weekday]
+        current_time = QTime.currentTime()
+
+        all_cameras = self.load_cameras()
+        if not all_cameras: return
+        
+        for cam_data in all_cameras:
+            cam_id = cam_data.get("id")
+            schedule = cam_data.get("schedule", {})
+            day_schedule = schedule.get(current_day_name_bg)
+
+            should_record = False
+            if day_schedule and day_schedule.get("enabled"):
+                start_time = QTime.fromString(day_schedule["start"], "HH:mm")
+                end_time = QTime.fromString(day_schedule["end"], "HH:mm")
+                if start_time <= current_time < end_time:
+                    should_record = True
+            
+            is_currently_recording = cam_id in self.scheduled_recorders
+            worker = self.video_workers.get(cam_id)
+            widget = self.active_video_widgets.get(cam_id)
+            if not worker or not widget: continue
+
+            if should_record and not is_currently_recording:
+                # Стартираме запис
+                recording_path = self.get_recording_path_for_camera(worker)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                safe_name = self.sanitize_filename(worker.camera_data['name'])
+                filename = recording_path / f"sched_{safe_name}_{timestamp}.mp4"
+                
+                frame = worker.get_latest_frame()
+                if frame is None: continue
+                height, width, _ = frame.shape
+                
+                recorder = RecordingWorker(str(filename), width, height, 20.0)
+                worker.FrameForRecording.connect(recorder.add_frame)
+                recorder.start()
+                self.scheduled_recorders[cam_id] = recorder
+                widget.set_recording_state(True)
+                self.add_event(cam_id, "Запис по график", str(filename))
+                print(f"Запис по график стартиран за {cam_id}")
+
+            elif not should_record and is_currently_recording:
+                # Спираме запис
+                recorder = self.scheduled_recorders.pop(cam_id, None)
+                if recorder:
+                    try: worker.FrameForRecording.disconnect(recorder.add_frame)
+                    except (TypeError, RuntimeError): pass
+                    recorder.stop()
+                    recorder.wait()
+                    widget.set_recording_state(False)
+                    print(f"Запис по график спрян за {cam_id}")
+
 
     def handle_worker_finished(self, cam_id):
         print(f"Нишката за камера {cam_id} приключи. Рестартиране след 5 секунди...")
@@ -772,7 +839,6 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("live_view")
         if not page: return
         
-        # Скриваме всички уиджети, без да ги трием
         for widget in self.active_video_widgets.values():
             widget.hide()
             widget.setParent(None)
@@ -795,7 +861,6 @@ class MainWindow(QMainWindow):
 
         if not widgets_to_show: return
 
-        # Изчистваме layout-a преди да добавим новите
         while page.grid_layout.count():
             child = page.grid_layout.takeAt(0)
             if child.widget():
