@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog
 )
 from PySide6.QtCore import QSize, Qt, QThread, QTimer, Signal, QTime
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QKeyEvent
 
 from data_manager import DataManager, get_translator
 from ui_pages import CamerasPage, LiveViewPage, RecordingsPage, SettingsPage, UsersPage
@@ -57,6 +57,9 @@ class MainWindow(QMainWindow):
         
         self.remote_client = None
         self.is_remote_mode = False
+        
+        self.is_fullscreen = False
+        self.fullscreen_widget = None
 
         self.command_timer = QTimer(self)
         self.command_timer.timeout.connect(self.process_command_queue)
@@ -73,15 +76,15 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         self.setCentralWidget(main_widget)
 
-        sidebar = QWidget()
-        sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(200)
-        sidebar_layout = QVBoxLayout(sidebar)
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("Sidebar")
+        self.sidebar.setFixedWidth(200)
+        sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
         sidebar_layout.setSpacing(10)
 
         self.pages = QStackedWidget()
-        main_layout.addWidget(sidebar)
+        main_layout.addWidget(self.sidebar)
         main_layout.addWidget(self.pages)
         
         btn_live_view = self.create_nav_button(self.translator.get_string("live_view"), "icons/video-camera.png")
@@ -117,10 +120,42 @@ class MainWindow(QMainWindow):
         
         self.apply_role_permissions()
         
-        # --- ПРОМЯНА: Стартираме приложението на страница "Камери" ---
         btn_cameras.setChecked(True)
         self.show_cameras_page()
     
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key_F11:
+            self.toggle_fullscreen()
+        elif event.key() == Qt.Key_Escape and self.is_fullscreen:
+            self.toggle_fullscreen()
+        else:
+            super().keyPressEvent(event)
+
+    def toggle_fullscreen(self, target_widget=None):
+        live_view_page = self.created_pages.get("live_view")
+        if not live_view_page or self.pages.currentWidget() != live_view_page:
+            return
+
+        is_entering_fullscreen = not self.is_fullscreen
+        self.is_fullscreen = is_entering_fullscreen
+
+        self.sidebar.setVisible(not is_entering_fullscreen)
+        live_view_page.top_container.setVisible(not is_entering_fullscreen)
+        live_view_page.bottom_container.setVisible(not is_entering_fullscreen)
+
+        if is_entering_fullscreen:
+            self.fullscreen_widget = target_widget
+            if self.fullscreen_widget:
+                for widget in self.active_video_widgets.values():
+                    if widget != self.fullscreen_widget:
+                        widget.hide()
+                        widget.setParent(None)
+            self.setWindowState(self.windowState() | Qt.WindowFullScreen)
+        else:
+            self.setWindowState(self.windowState() & ~Qt.WindowFullScreen)
+            self.fullscreen_widget = None
+            self.update_grid_layout()
+            
     def process_command_queue(self):
         try:
             command = self.command_queue.get_nowait()
@@ -378,7 +413,7 @@ class MainWindow(QMainWindow):
             page.camera_selector.addItem(cam_data["name"], cam_id)
             
             frame_widget = VideoFrame(camera_name=cam_data.get("name"), camera_id=cam_id)
-            frame_widget.double_clicked.connect(self.toggle_fullscreen_camera)
+            frame_widget.double_clicked.connect(lambda widget=frame_widget: self.toggle_fullscreen(widget))
             
             self.active_video_widgets[cam_id] = frame_widget
             
@@ -492,7 +527,6 @@ class MainWindow(QMainWindow):
             for worker in workers_to_stop:
                 worker.stop()
             
-            # Изчакваме нишките да спрат във фонов режим, за да не блокираме GUI
             wait_thread = threading.Thread(target=self._wait_for_workers_to_finish, args=(workers_to_stop,))
             wait_thread.daemon = True
             wait_thread.start()
@@ -886,25 +920,7 @@ class MainWindow(QMainWindow):
             row, col = idx // cols, idx % cols
             page.grid_layout.addWidget(widget, row, col)
             widget.show()
-
-    def toggle_fullscreen_camera(self):
-        sender_widget = self.sender()
-        is_fullscreen = sender_widget.property("fullscreen")
-        page = self.created_pages.get("live_view")
-        if not page: return
-        if is_fullscreen:
-            for widget in self.active_video_widgets.values():
-                widget.setProperty("fullscreen", False)
-            self.update_grid_layout()
-        else:
-            for widget in self.active_video_widgets.values():
-                if widget == sender_widget:
-                    widget.setProperty("fullscreen", True)
-                    page.grid_layout.addWidget(widget, 0, 0)
-                    widget.show()
-                else:
-                    widget.hide()
-                    
+    
     def on_motion_detected(self, cam_id):
         widget = self.active_video_widgets.get(cam_id)
         if widget:
@@ -1090,7 +1106,9 @@ class MainWindow(QMainWindow):
     
     def handle_single_frame_for_recording(self, cam_id, frame):
         if self.recording_worker and self.recording_worker.isRunning():
-            self.recording_worker.add_frame(frame)
+            worker_of_interest, _ = self.get_camera_to_control()
+            if worker_of_interest and cam_id == worker_of_interest.camera_data.get("id"):
+                self.recording_worker.add_frame(frame)
 
     def start_grid_recording(self):
         page = self.created_pages.get("live_view")

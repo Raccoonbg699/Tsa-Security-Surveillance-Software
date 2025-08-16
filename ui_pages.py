@@ -48,25 +48,31 @@ class CamerasPage(QWidget):
         self.delete_button.setEnabled(is_selected)
 
 class LiveViewPage(QWidget):
-    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
-        top_layout = QHBoxLayout()
+
+        # --- ПРОМЯНА: Създаваме контейнери за горните и долните контроли ---
+        self.top_container = QWidget()
+        top_layout = QHBoxLayout(self.top_container)
         top_layout.setContentsMargins(0, 0, 0, 0)
+        
         title = QLabel(translator.get_string("page_live_view_title"))
         font = title.font()
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
+        
         self.camera_selector = QComboBox()
         self.camera_selector.setMinimumWidth(200)
         self.camera_selector.hide()
+        
         self.grid_1x1_button = QPushButton("1x1")
         self.grid_2x2_button = QPushButton("2x2")
         self.grid_3x3_button = QPushButton("3x3")
+        
         self.grid_1x1_button.setCheckable(True)
         self.grid_2x2_button.setCheckable(True)
         self.grid_3x3_button.setCheckable(True)
@@ -74,27 +80,35 @@ class LiveViewPage(QWidget):
         self.grid_2x2_button.setAutoExclusive(True)
         self.grid_3x3_button.setAutoExclusive(True)
         self.grid_2x2_button.setChecked(True)
+        
         top_layout.addWidget(title)
         top_layout.addWidget(self.camera_selector)
         top_layout.addStretch()
         top_layout.addWidget(self.grid_1x1_button)
         top_layout.addWidget(self.grid_2x2_button)
         top_layout.addWidget(self.grid_3x3_button)
+        
         self.grid_container = QWidget()
         self.grid_layout = QGridLayout(self.grid_container)
         self.grid_layout.setSpacing(5)
-        bottom_controls = QHBoxLayout()
+        
+        self.bottom_container = QWidget()
+        bottom_controls = QHBoxLayout(self.bottom_container)
         self.snapshot_button = QPushButton(translator.get_string("snapshot_button"))
         self.record_button = QPushButton(translator.get_string("record_button"))
         self.record_button.setCheckable(True)
+        
         bottom_controls.addStretch()
         bottom_controls.addWidget(self.snapshot_button)
         bottom_controls.addWidget(self.record_button)
-        main_layout.addLayout(top_layout)
+        
+        main_layout.addWidget(self.top_container)
         main_layout.addWidget(self.grid_container, 1)
-        main_layout.addLayout(bottom_controls)
+        main_layout.addWidget(self.bottom_container)
+
 
 class RecordingsPage(QWidget):
+    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
@@ -107,19 +121,16 @@ class RecordingsPage(QWidget):
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
-        
         self.view_in_app_button = QPushButton(translator.get_string("view_in_app_button"))
         self.open_in_player_button = QPushButton(translator.get_string("open_in_player_button"))
         self.open_folder_button = QPushButton(translator.get_string("open_folder_button"))
         self.info_button = QPushButton(translator.get_string("info_button"))
         self.delete_button = QPushButton(translator.get_string("delete_recording_button"))
-        
         self.view_in_app_button.setEnabled(False)
         self.open_in_player_button.setEnabled(False)
         self.open_folder_button.setEnabled(False)
         self.info_button.setEnabled(False)
         self.delete_button.setEnabled(False)
-        
         top_layout.addWidget(title)
         top_layout.addStretch()
         top_layout.addWidget(self.view_in_app_button)
@@ -127,7 +138,6 @@ class RecordingsPage(QWidget):
         top_layout.addWidget(self.open_folder_button)
         top_layout.addWidget(self.info_button)
         top_layout.addWidget(self.delete_button)
-        
         filters_layout = QHBoxLayout()
         filters_layout.addWidget(QLabel(translator.get_string("filters_label")))
         self.camera_filter = QComboBox()
@@ -135,11 +145,9 @@ class RecordingsPage(QWidget):
         filters_layout.addWidget(self.camera_filter)
         filters_layout.addWidget(self.event_type_filter)
         filters_layout.addStretch()
-        
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
-        
         layout.addLayout(top_layout)
         layout.addLayout(filters_layout)
         layout.addWidget(self.list_widget)
@@ -153,7 +161,7 @@ class RecordingsPage(QWidget):
         self.delete_button.setEnabled(is_selected)
 
 class SettingsPage(QWidget):
-    """Страница за настройки на приложението."""
+    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
