@@ -15,8 +15,8 @@ class RemoteSystemDialog(QDialog):
         self.translator = get_translator()
         self.is_edit_mode = system_data is not None
         
-        window_title = "Редактиране на система" if self.is_edit_mode else "Добавяне на система"
-        self.setWindowTitle(window_title)
+        window_title_key = "edit_system_title" if self.is_edit_mode else "add_system_title"
+        self.setWindowTitle(self.translator.get_string(window_title_key))
         self.setMinimumWidth(400)
 
         main_layout = QVBoxLayout(self)
@@ -35,10 +35,10 @@ class RemoteSystemDialog(QDialog):
             self.username_input.setText(system_data.get("username", ""))
             self.password_input.setText(system_data.get("password", ""))
 
-        form_layout.addRow("Име на връзката:", self.name_input)
-        form_layout.addRow("Tailscale IP адрес:", self.ip_input)
-        form_layout.addRow("Потребителско име:", self.username_input)
-        form_layout.addRow("Парола:", self.password_input)
+        form_layout.addRow(self.translator.get_string("connection_name_label"), self.name_input)
+        form_layout.addRow(self.translator.get_string("tailscale_ip_label"), self.ip_input)
+        form_layout.addRow(self.translator.get_string("username_label"), self.username_input)
+        form_layout.addRow(self.translator.get_string("password_label"), self.password_input)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -62,7 +62,7 @@ class RemoteSystemsPage(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.translator = get_translator()
-        self.setWindowTitle("Отдалечени системи")
+        self.setWindowTitle(self.translator.get_string("remote_systems_title"))
         self.setMinimumSize(600, 400)
 
         main_layout = QVBoxLayout(self)
@@ -72,10 +72,10 @@ class RemoteSystemsPage(QDialog):
         self.list_widget.itemDoubleClicked.connect(self.connect_to_system)
 
         buttons_layout = QHBoxLayout()
-        self.connect_button = QPushButton("Свържи се")
-        self.add_button = QPushButton("Добави...")
-        self.edit_button = QPushButton("Редактирай...")
-        self.delete_button = QPushButton("Изтрий")
+        self.connect_button = QPushButton(self.translator.get_string("connect_button"))
+        self.add_button = QPushButton(self.translator.get_string("add_button_ellipsis"))
+        self.edit_button = QPushButton(self.translator.get_string("edit_button_ellipsis"))
+        self.delete_button = QPushButton(self.translator.get_string("delete_button"))
         
         self.connect_button.setObjectName("AccentButton")
         self.connect_button.setEnabled(False)
@@ -88,7 +88,7 @@ class RemoteSystemsPage(QDialog):
         buttons_layout.addWidget(self.delete_button)
         buttons_layout.addWidget(self.connect_button)
 
-        main_layout.addWidget(QLabel("Изберете система, към която да се свържете:"))
+        main_layout.addWidget(QLabel(self.translator.get_string("select_system_label")))
         main_layout.addWidget(self.list_widget)
         main_layout.addLayout(buttons_layout)
         
@@ -122,7 +122,7 @@ class RemoteSystemsPage(QDialog):
         if dialog.exec():
             new_data = dialog.get_data()
             if not all(new_data.values()):
-                QMessageBox.warning(self, "Грешка", "Всички полета са задължителни.")
+                QMessageBox.warning(self, self.translator.get_string("connection_error_title"), self.translator.get_string("error_all_fields_required"))
                 return
             new_data["id"] = str(uuid.uuid4())
             systems = DataManager.load_remote_systems()
@@ -138,7 +138,7 @@ class RemoteSystemsPage(QDialog):
         if dialog.exec():
             updated_data = dialog.get_data()
             if not all(updated_data.values()):
-                QMessageBox.warning(self, "Грешка", "Всички полета са задължителни.")
+                QMessageBox.warning(self, self.translator.get_string("connection_error_title"), self.translator.get_string("error_all_fields_required"))
                 return
             
             systems = DataManager.load_remote_systems()
@@ -154,7 +154,7 @@ class RemoteSystemsPage(QDialog):
         if not selected_items: return
         system_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
-        reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{system_to_delete['name']}'?",
+        reply = QMessageBox.question(self, self.translator.get_string("confirmation_title"), self.translator.get_string("delete_confirmation_text").format(system_to_delete['name']),
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             systems = DataManager.load_remote_systems()
@@ -170,14 +170,14 @@ class RemoteSystemsPage(QDialog):
         client = RemoteClient(host=system_data["ip"], username=system_data["username"], password=system_data["password"])
         
         self.connect_button.setEnabled(False)
-        self.connect_button.setText("Свързване...")
+        self.connect_button.setText(self.translator.get_string("connecting_button_text"))
         QApplication.processEvents()
         
         if client.test_connection():
-            QMessageBox.information(self, "Успех", f"Успешна връзка със система '{system_data['name']}'!")
+            QMessageBox.information(self, self.translator.get_string("connection_success_title"), self.translator.get_string("connection_success_text").format(system_data['name']))
             self.connection_successful.emit(client)
             self.accept()
         else:
-            QMessageBox.critical(self, "Грешка", f"Неуспешна връзка със система '{system_data['name']}'.\nПроверете IP адреса, потребителското име и паролата.")
-            self.connect_button.setText("Свържи се")
+            QMessageBox.critical(self, self.translator.get_string("connection_error_title"), self.translator.get_string("connection_error_text").format(system_data['name']))
+            self.connect_button.setText(self.translator.get_string("connect_button"))
             self.on_selection_changed()

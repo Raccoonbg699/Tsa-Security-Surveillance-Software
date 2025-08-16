@@ -12,8 +12,8 @@ class CameraDialog(QDialog):
         self.is_edit_mode = camera_data is not None
         translator = get_translator()
         
-        window_title = "Редактиране на камера" if self.is_edit_mode else "Добавяне на нова камера"
-        self.setWindowTitle(window_title)
+        window_title_key = "edit_camera_title" if self.is_edit_mode else "add_camera_title"
+        self.setWindowTitle(translator.get_string(window_title_key))
         self.setMinimumWidth(450)
 
         main_layout = QVBoxLayout(self)
@@ -21,15 +21,15 @@ class CameraDialog(QDialog):
 
         self.name_input = QLineEdit()
         self.url_input = QLineEdit()
-        self.status_checkbox = QCheckBox("Активна")
-        self.motion_checkbox = QCheckBox("Детекция на движение")
+        self.status_checkbox = QCheckBox(translator.get_string("active_checkbox"))
+        self.motion_checkbox = QCheckBox(translator.get_string("motion_detection_checkbox"))
 
         self.username_input = QLineEdit()
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
 
         # --- SCHEDULE UI ---
-        schedule_group = QGroupBox("График на записите")
+        schedule_group = QGroupBox(translator.get_string("recordings")) # Може да се добави по-добър ключ
         schedule_layout = QFormLayout(schedule_group)
         self.schedule_widgets = {}
         days = ["Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота", "Неделя"]
@@ -67,8 +67,8 @@ class CameraDialog(QDialog):
             self.status_checkbox.setChecked(True)
             self.motion_checkbox.setChecked(True)
 
-        form_layout.addRow("Име на камера:", self.name_input)
-        form_layout.addRow("RTSP Адрес:", self.url_input)
+        form_layout.addRow(translator.get_string("camera_name_label"), self.name_input)
+        form_layout.addRow(translator.get_string("rtsp_address_label"), self.url_input)
         form_layout.addRow(translator.get_string("camera_username_label"), self.username_input)
         form_layout.addRow(translator.get_string("camera_password_label"), self.password_input)
         form_layout.addRow(self.status_checkbox)
@@ -106,9 +106,10 @@ class UserDialog(QDialog):
     def __init__(self, user_data=None, parent=None):
         super().__init__(parent)
         self.is_edit_mode = user_data is not None
+        translator = get_translator()
         
-        window_title = "Редактиране на потребител" if self.is_edit_mode else "Добавяне на нов потребител"
-        self.setWindowTitle(window_title)
+        window_title_key = "edit_user_title" if self.is_edit_mode else "add_user_title"
+        self.setWindowTitle(translator.get_string(window_title_key))
         self.setMinimumWidth(400)
 
         main_layout = QVBoxLayout(self)
@@ -127,9 +128,9 @@ class UserDialog(QDialog):
                 self.username_input.setReadOnly(True)
                 self.role_combo.setEnabled(False)
 
-        form_layout.addRow("Потребителско име:", self.username_input)
-        form_layout.addRow("Парола:", self.password_input)
-        form_layout.addRow("Роля:", self.role_combo)
+        form_layout.addRow(translator.get_string("username_label"), self.username_input)
+        form_layout.addRow(translator.get_string("password_label"), self.password_input)
+        form_layout.addRow(translator.get_string("role_label"), self.role_combo)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
