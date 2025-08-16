@@ -5,7 +5,7 @@ rem --- Задаваме кодова таблица UTF-8 за правилно
 set PYTHONIOENCODING=UTF-8
 chcp 65001 >nul
 
-rem --- ПРОМЯНА: Сменяме текущата директория към тази на скрипта ---
+rem --- Сменяме текущата директория към тази на скрипта ---
 cd /d "%~dp0"
 
 echo ===============================================================
@@ -58,12 +58,11 @@ echo.
 echo All libraries are ready.
 echo.
 
-rem --- Стартиране на приложението без конзола ---
+rem --- Стартиране на приложението без конзола (по надежден начин) ---
 echo Starting TSA-Security application...
 echo.
 
-set "PYTHONW_PATH=%PYTHON_PATH:python.exe=pythonw.exe%"
-start "" "%PYTHONW_PATH%" main.py
+start "TSA-Security" /B "%PYTHON_PATH%" main.py
 
 endlocal
 exit /b 0
