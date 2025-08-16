@@ -35,22 +35,22 @@ echo Checking and installing required libraries...
 echo.
 
 echo Installing/Verifying PySide6...
-"%PYTHON_PATH%" -m pip install PySide6 --progress-bar off --user >nul
+"%PYTHON_PATH%" -m pip install PySide6 --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install PySide6. & pause & exit /b 1 )
 
 echo.
 echo Installing/Verifying OpenCV...
-"%PYTHON_PATH%" -m pip install opencv-python --progress-bar off --user >nul
+"%PYTHON_PATH%" -m pip install opencv-python --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install opencv-python. & pause & exit /b 1 )
 
 echo.
 echo Installing/Verifying Requests...
-"%PYTHON_PATH%" -m pip install requests --progress-bar off --user >nul
+"%PYTHON_PATH%" -m pip install requests --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install requests. & pause & exit /b 1 )
 
 echo.
 echo Installing/Verifying NumPy...
-"%PYTHON_PATH%" -m pip install numpy --progress-bar off --user >nul
+"%PYTHON_PATH%" -m pip install numpy --progress-bar off --user
 if %errorlevel% neq 0 ( echo ERROR: Failed to install numpy. & pause & exit /b 1 )
 
 
@@ -58,11 +58,14 @@ echo.
 echo All libraries are ready.
 echo.
 
-rem --- Стартиране на приложението без конзола (по надежден начин) ---
+rem --- Стартиране на приложението с конзола, за да се виждат грешки ---
 echo Starting TSA-Security application...
+echo The console will remain open to show status and errors.
 echo.
+"%PYTHON_PATH%" main.py
 
-start "TSA-Security" /B "%PYTHON_PATH%" main.py
-
+echo.
+echo Application finished.
+pause
 endlocal
 exit /b 0
