@@ -55,14 +55,12 @@ echo.
 echo All libraries are ready.
 echo.
 
-rem --- Стартиране на приложението с конзола, за да се виждат грешки ---
+rem --- Стартиране на приложението без конзола ---
 echo Starting TSA-Security application...
-echo The console will remain open to show status and errors.
 echo.
-"%PYTHON_PATH%" main.py
 
-echo.
-echo Application finished.
-pause
+set "PYTHONW_PATH=%PYTHON_PATH:python.exe=pythonw.exe%"
+start "" "%PYTHONW_PATH%" main.py
+
 endlocal
 exit /b 0
