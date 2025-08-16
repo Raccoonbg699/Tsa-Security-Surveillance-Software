@@ -363,6 +363,10 @@ class MainWindow(QMainWindow):
         structure_mode = settings_data.get("recording_structure", "single")
         index = page.recording_structure_combo.findData(structure_mode)
         if index != -1: page.recording_structure_combo.setCurrentIndex(index)
+        page.storage_limit_input.setText(str(settings_data.get("storage_limit_gb", 0)))
+        action = settings_data.get("storage_action", "stop")
+        index = page.storage_action_combo.findData(action)
+        if index != -1: page.storage_action_combo.setCurrentIndex(index)
 
     def apply_theme(self, theme_name):
         style_file_name = "style.qss" if theme_name == "dark" else "style_light.qss"
@@ -387,13 +391,68 @@ class MainWindow(QMainWindow):
             "default_grid": page.grid_combo.currentText(),
             "recording_path": page.path_edit.text(),
             "language": new_lang,
-            "recording_structure": new_structure
+            "recording_structure": new_structure,
+            "storage_limit_gb": int(page.storage_limit_input.text() or 0),
+            "storage_action": page.storage_action_combo.currentData()
         }
         DataManager.save_settings(new_settings)
         self.apply_theme(new_theme)
         if old_lang != new_lang: self.restart_requested.emit()
         else: QMessageBox.information(self, "Успех", "Настройките бяха запазени успешно!")
         
+    def get_folder_size(self, folder_path):
+        total_size = 0
+        try:
+            for dirpath, dirnames, filenames in os.walk(folder_path):
+                for f in filenames:
+                    fp = os.path.join(dirpath, f)
+                    if not os.path.islink(fp):
+                        total_size += os.path.getsize(fp)
+        except FileNotFoundError:
+            return 0
+        return total_size
+
+    def check_storage_limit(self):
+        """Проверява лимита на папката и предприема действия. Връща True, ако може да се записва."""
+        if self.is_remote_mode: return True
+
+        settings = DataManager.load_settings()
+        limit_gb = settings.get("storage_limit_gb", 0)
+        action = settings.get("storage_action", "stop")
+        recordings_path = settings.get("recording_path")
+
+        if not recordings_path or limit_gb <= 0:
+            return True
+
+        limit_bytes = limit_gb * (1024**3)
+        current_size_bytes = self.get_folder_size(recordings_path)
+
+        if current_size_bytes < limit_bytes:
+            return True
+
+        print(f"Лимитът на съхранение ({limit_gb}GB) е достигнат.")
+        
+        if action == "stop":
+            print("Действие: Спиране на нови записи.")
+            return False
+        
+        elif action == "overwrite":
+            print("Действие: Презаписване на най-старите файлове...")
+            all_events = DataManager.load_events()
+            all_events.sort(key=lambda x: x.get("timestamp"))
+
+            while self.get_folder_size(recordings_path) >= limit_bytes:
+                if not all_events:
+                    print("Няма повече събития за изтриване.")
+                    break
+
+                oldest_event = all_events.pop(0)
+                self._perform_delete(oldest_event)
+            
+            return True
+
+        return False
+
     def start_all_streams(self):
         self.stop_all_streams()
 
@@ -463,6 +522,10 @@ class MainWindow(QMainWindow):
             if not worker or not widget: continue
 
             if should_record and not is_currently_recording:
+                if not self.check_storage_limit():
+                    print(f"Лимитът е достигнат, записът по график за {cam_id} няма да стартира.")
+                    return
+
                 recording_path = self.get_recording_path_for_camera(worker)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_name = self.sanitize_filename(worker.camera_data['name'])
@@ -983,6 +1046,8 @@ class MainWindow(QMainWindow):
         return visible_widgets
 
     def take_snapshot(self, remote_camera_id=None):
+        if not self.check_storage_limit(): return
+        
         page = self.created_pages.get("live_view")
         if not page: return
 
@@ -1042,6 +1107,11 @@ class MainWindow(QMainWindow):
                     self.add_event(worker.camera_data['id'], "Снимка", str(filename))
 
     def toggle_manual_recording(self, is_recording, remote_camera_id=None):
+        if is_recording and not self.check_storage_limit():
+            page = self.created_pages.get("live_view")
+            if page: page.record_button.setChecked(False)
+            return
+
         page = self.created_pages.get("live_view")
         if not page: return
 

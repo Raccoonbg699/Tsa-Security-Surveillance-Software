@@ -85,7 +85,11 @@
         "connection_success_title": "Success",
         "connection_success_text": "Successfully connected to system '{0}'!",
         "connection_error_title": "Error",
-        "connection_error_text": "Failed to connect to system '{0}'.\nCheck the IP address, username, and password."
+        "connection_error_text": "Failed to connect to system '{0}'.\nCheck the IP address, username, and password.",
+        "storage_limit_label": "Storage Limit (GB, 0=off):",
+        "storage_action_label": "Action When Limit Reached:",
+        "storage_action_stop": "Stop Recording",
+        "storage_action_overwrite": "Overwrite Oldest Files"
     },
     "bg": {
         "login_window_title": "Tsa-Security - Вход",
@@ -173,6 +177,10 @@
         "connection_success_title": "Успех",
         "connection_success_text": "Успешна връзка със система '{0}'!",
         "connection_error_title": "Грешка",
-        "connection_error_text": "Неуспешна връзка със система '{0}'.\nПроверете IP адреса, потребителското име и паролата."
+        "connection_error_text": "Неуспешна връзка със система '{0}'.\nПроверете IP адреса, потребителското име и паролата.",
+        "storage_limit_label": "Лимит на папката (GB, 0=изкл):",
+        "storage_action_label": "Действие при достигане на лимита:",
+        "storage_action_stop": "Спри записа",
+        "storage_action_overwrite": "Презаписвай най-старите файлове"
     }
 }

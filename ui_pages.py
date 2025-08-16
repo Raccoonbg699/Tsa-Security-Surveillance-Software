@@ -4,11 +4,11 @@ from PySide6.QtWidgets import (
     QGridLayout, QComboBox, QListWidget, QFormLayout, QFileDialog
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIntValidator
 
 from data_manager import get_translator
 
 class CamerasPage(QWidget):
-    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
@@ -54,7 +54,6 @@ class LiveViewPage(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # --- ПРОМЯНА: Създаваме контейнери за горните и долните контроли ---
         self.top_container = QWidget()
         top_layout = QHBoxLayout(self.top_container)
         top_layout.setContentsMargins(0, 0, 0, 0)
@@ -106,9 +105,7 @@ class LiveViewPage(QWidget):
         main_layout.addWidget(self.grid_container, 1)
         main_layout.addWidget(self.bottom_container)
 
-
 class RecordingsPage(QWidget):
-    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
@@ -121,16 +118,19 @@ class RecordingsPage(QWidget):
         font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
+        
         self.view_in_app_button = QPushButton(translator.get_string("view_in_app_button"))
         self.open_in_player_button = QPushButton(translator.get_string("open_in_player_button"))
         self.open_folder_button = QPushButton(translator.get_string("open_folder_button"))
         self.info_button = QPushButton(translator.get_string("info_button"))
         self.delete_button = QPushButton(translator.get_string("delete_recording_button"))
+        
         self.view_in_app_button.setEnabled(False)
         self.open_in_player_button.setEnabled(False)
         self.open_folder_button.setEnabled(False)
         self.info_button.setEnabled(False)
         self.delete_button.setEnabled(False)
+        
         top_layout.addWidget(title)
         top_layout.addStretch()
         top_layout.addWidget(self.view_in_app_button)
@@ -138,6 +138,7 @@ class RecordingsPage(QWidget):
         top_layout.addWidget(self.open_folder_button)
         top_layout.addWidget(self.info_button)
         top_layout.addWidget(self.delete_button)
+        
         filters_layout = QHBoxLayout()
         filters_layout.addWidget(QLabel(translator.get_string("filters_label")))
         self.camera_filter = QComboBox()
@@ -145,9 +146,11 @@ class RecordingsPage(QWidget):
         filters_layout.addWidget(self.camera_filter)
         filters_layout.addWidget(self.event_type_filter)
         filters_layout.addStretch()
+        
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(True)
         self.list_widget.itemSelectionChanged.connect(self.on_selection_changed)
+        
         layout.addLayout(top_layout)
         layout.addLayout(filters_layout)
         layout.addWidget(self.list_widget)
@@ -161,7 +164,7 @@ class RecordingsPage(QWidget):
         self.delete_button.setEnabled(is_selected)
 
 class SettingsPage(QWidget):
-    # ... (този клас остава същият) ...
+    """Страница за настройки на приложението."""
     def __init__(self):
         super().__init__()
         translator = get_translator()
@@ -204,11 +207,19 @@ class SettingsPage(QWidget):
         path_layout.addWidget(self.path_edit, 1)
         path_layout.addWidget(self.browse_button)
 
+        self.storage_limit_input = QLineEdit("0")
+        self.storage_limit_input.setValidator(QIntValidator(0, 10000))
+        self.storage_action_combo = QComboBox()
+        self.storage_action_combo.addItem(translator.get_string("storage_action_stop"), "stop")
+        self.storage_action_combo.addItem(translator.get_string("storage_action_overwrite"), "overwrite")
+
         form_layout.addRow(translator.get_string("app_theme_label"), self.theme_combo)
         form_layout.addRow(translator.get_string("default_view_label"), self.grid_combo)
         form_layout.addRow(translator.get_string("language_label"), self.lang_combo)
         form_layout.addRow(translator.get_string("recordings_folder_label"), path_layout)
         form_layout.addRow(translator.get_string("recording_structure_label"), self.recording_structure_combo)
+        form_layout.addRow(translator.get_string("storage_limit_label"), self.storage_limit_input)
+        form_layout.addRow(translator.get_string("storage_action_label"), self.storage_action_combo)
         
         self.save_button = QPushButton(translator.get_string("save_changes_button"))
         self.save_button.setObjectName("AccentButton")
@@ -224,7 +235,6 @@ class SettingsPage(QWidget):
             self.path_edit.setText(directory)
 
 class UsersPage(QWidget):
-    # ... (този клас остава същият) ...
     def __init__(self):
         super().__init__()
         translator = get_translator()
