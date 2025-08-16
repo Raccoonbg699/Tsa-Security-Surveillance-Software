@@ -7,6 +7,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 from queue import Empty
+import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QStackedWidget, QLabel, QMessageBox, QProgressDialog, QListWidgetItem, QFormLayout,
@@ -61,7 +62,6 @@ class MainWindow(QMainWindow):
         self.command_timer.timeout.connect(self.process_command_queue)
         self.command_timer.start(250)
         
-        # --- SCHEDULE LOGIC ---
         self.scheduled_recorders = {}
         self.schedule_check_timer = QTimer(self)
         self.schedule_check_timer.timeout.connect(self.check_schedules)
@@ -117,8 +117,9 @@ class MainWindow(QMainWindow):
         
         self.apply_role_permissions()
         
-        btn_live_view.setChecked(True)
-        self.show_live_view_page()
+        # --- ПРОМЯНА: Стартираме приложението на страница "Камери" ---
+        btn_cameras.setChecked(True)
+        self.show_cameras_page()
     
     def process_command_queue(self):
         try:
@@ -396,7 +397,6 @@ class MainWindow(QMainWindow):
         self.video_workers[cam_id] = worker
     
     def check_schedules(self):
-        """Проверява графиците и стартира/спира записи."""
         if self.is_remote_mode: return
 
         now = datetime.now()
@@ -410,6 +410,8 @@ class MainWindow(QMainWindow):
         
         for cam_data in all_cameras:
             cam_id = cam_data.get("id")
+            if not cam_data.get("is_active"): continue
+
             schedule = cam_data.get("schedule", {})
             day_schedule = schedule.get(current_day_name_bg)
 
@@ -426,7 +428,6 @@ class MainWindow(QMainWindow):
             if not worker or not widget: continue
 
             if should_record and not is_currently_recording:
-                # Стартираме запис
                 recording_path = self.get_recording_path_for_camera(worker)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_name = self.sanitize_filename(worker.camera_data['name'])
@@ -437,7 +438,7 @@ class MainWindow(QMainWindow):
                 height, width, _ = frame.shape
                 
                 recorder = RecordingWorker(str(filename), width, height, 20.0)
-                worker.FrameForRecording.connect(recorder.add_frame)
+                worker.FrameForRecording.connect(lambda cid, frm, rec=recorder, cam_id_check=cam_id: rec.add_frame(frm) if cid == cam_id_check else None)
                 recorder.start()
                 self.scheduled_recorders[cam_id] = recorder
                 widget.set_recording_state(True)
@@ -445,10 +446,10 @@ class MainWindow(QMainWindow):
                 print(f"Запис по график стартиран за {cam_id}")
 
             elif not should_record and is_currently_recording:
-                # Спираме запис
                 recorder = self.scheduled_recorders.pop(cam_id, None)
                 if recorder:
-                    try: worker.FrameForRecording.disconnect(recorder.add_frame)
+                    try: 
+                        worker.FrameForRecording.disconnect()
                     except (TypeError, RuntimeError): pass
                     recorder.stop()
                     recorder.wait()
@@ -467,20 +468,35 @@ class MainWindow(QMainWindow):
             if cam_data and frame_widget:
                 QTimer.singleShot(5000, lambda: self.start_single_worker(cam_data, frame_widget))
 
+    def _wait_for_workers_to_finish(self, workers_to_stop):
+        """Тази функция работи в отделна нишка, за да изчака работниците."""
+        print("Фонова нишка изчаква работниците да приключат...")
+        for worker in workers_to_stop:
+            worker.wait()
+        print("Всички стари работни нишки са приключили.")
+
     def stop_all_streams(self):
+        """Спира всички потоци и записи, без да блокира интерфейса."""
+        print("Спиране на всички потоци...")
         if self.is_grid_recording: self.stop_grid_recording()
         if self.recording_worker:
-            worker, _ = self.get_camera_to_control()
-            if worker:
-                try: worker.FrameForRecording.disconnect(self.handle_single_frame_for_recording)
-                except (TypeError, RuntimeError): pass
-            self.recording_worker.stop()
-            self.recording_worker.wait()
-            self.recording_worker = None
+            self.toggle_manual_recording(False)
         
-        for worker in self.video_workers.values():
-            worker.stop()
-            worker.wait()
+        for recorder in self.scheduled_recorders.values():
+            recorder.stop()
+            recorder.wait()
+        self.scheduled_recorders.clear()
+
+        if self.video_workers:
+            workers_to_stop = list(self.video_workers.values())
+            for worker in workers_to_stop:
+                worker.stop()
+            
+            # Изчакваме нишките да спрат във фонов режим, за да не блокираме GUI
+            wait_thread = threading.Thread(target=self._wait_for_workers_to_finish, args=(workers_to_stop,))
+            wait_thread.daemon = True
+            wait_thread.start()
+
         self.video_workers.clear()
         
         page = self.created_pages.get("live_view")
@@ -1176,7 +1192,7 @@ class MainWindow(QMainWindow):
                 canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
         
         if self.recording_worker:
-            self.recording_worker.add_frame(canvas)
+            self.recording_worker.add_frame(frame)
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = self.load_cameras()
