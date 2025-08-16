@@ -32,22 +32,22 @@ echo Checking and installing required libraries...
 echo.
 
 echo Installing/Verifying PySide6...
-"%PYTHON_PATH%" -m pip install PySide6 --progress-bar off --user
+"%PYTHON_PATH%" -m pip install PySide6 --progress-bar off --user >nul
 if %errorlevel% neq 0 ( echo ERROR: Failed to install PySide6. & pause & exit /b 1 )
 
 echo.
 echo Installing/Verifying OpenCV...
-"%PYTHON_PATH%" -m pip install opencv-python --progress-bar off --user
+"%PYTHON_PATH%" -m pip install opencv-python --progress-bar off --user >nul
 if %errorlevel% neq 0 ( echo ERROR: Failed to install opencv-python. & pause & exit /b 1 )
 
 echo.
 echo Installing/Verifying Requests...
-"%PYTHON_PATH%" -m pip install requests --progress-bar off --user
+"%PYTHON_PATH%" -m pip install requests --progress-bar off --user >nul
 if %errorlevel% neq 0 ( echo ERROR: Failed to install requests. & pause & exit /b 1 )
 
 echo.
 echo Installing/Verifying NumPy...
-"%PYTHON_PATH%" -m pip install numpy --progress-bar off --user
+"%PYTHON_PATH%" -m pip install numpy --progress-bar off --user >nul
 if %errorlevel% neq 0 ( echo ERROR: Failed to install numpy. & pause & exit /b 1 )
 
 
@@ -55,12 +55,14 @@ echo.
 echo All libraries are ready.
 echo.
 
-rem --- Стартиране на приложението без конзола ---
+rem --- Стартиране на приложението без конзола с пренасочване на изхода ---
 echo Starting TSA-Security application...
 echo.
 
 set "PYTHONW_PATH=%PYTHON_PATH:python.exe=pythonw.exe%"
-start "" "%PYTHONW_PATH%" main.py
+
+rem --- ПРОМЯНА: Пренасочваме изхода и грешките към лог файлове, за да не "увисва" мрежата ---
+start "" "%PYTHONW_PATH%" main.py 1> tsa-security.log 2> tsa-security.error.log
 
 endlocal
 exit /b 0
