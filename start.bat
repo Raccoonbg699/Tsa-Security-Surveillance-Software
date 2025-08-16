@@ -5,6 +5,9 @@ rem --- Задаваме кодова таблица UTF-8 за правилно
 set PYTHONIOENCODING=UTF-8
 chcp 65001 >nul
 
+rem --- ПРОМЯНА: Сменяме текущата директория към тази на скрипта ---
+cd /d "%~dp0"
+
 echo ===============================================================
 echo  TSA-Security Startup Script
 echo ===============================================================
@@ -55,14 +58,12 @@ echo.
 echo All libraries are ready.
 echo.
 
-rem --- Стартиране на приложението без конзола с пренасочване на изхода ---
+rem --- Стартиране на приложението без конзола ---
 echo Starting TSA-Security application...
 echo.
 
 set "PYTHONW_PATH=%PYTHON_PATH:python.exe=pythonw.exe%"
-
-rem --- ПРОМЯНА: Пренасочваме изхода и грешките към лог файлове, за да не "увисва" мрежата ---
-start "" "%PYTHONW_PATH%" main.py 1> tsa-security.log 2> tsa-security.error.log
+start "" "%PYTHONW_PATH%" main.py
 
 endlocal
 exit /b 0
