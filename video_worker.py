@@ -14,7 +14,7 @@ class RecordingWorker(QThread):
     """
     def __init__(self, filename, width, height, fps):
         super().__init__()
-        self.frame_queue = Queue(maxsize=10) # Увеличаваме малко буфера
+        self.frame_queue = Queue(maxsize=10)
         self._is_running = True
         self.target_fps = fps
         self.frame_duration = 1.0 / self.target_fps
@@ -50,24 +50,25 @@ class RecordingWorker(QThread):
 
     # --- ПРОМЯНА: Методът вече приема два аргумента, за да съответства на сигнала ---
     def add_frame(self, cam_id, frame):
-        # Игнорираме cam_id, тъй като не ни е нужен тук
-        try:
-            self.frame_queue.put_nowait(frame)
-        except Full:
-            pass # Игнорираме, ако опашката е пълна
+        if frame is not None:
+            try:
+                self.frame_queue.put_nowait(frame)
+            except Full:
+                pass
 
     def stop(self):
         self._is_running = False
 
 class VideoWorker(QThread):
-    ImageUpdate = Signal(QImage)
-    StreamStatus = Signal(str)
+    ImageUpdate = Signal(str, QImage)
+    StreamStatus = Signal(str, str)
     MotionDetected = Signal(str)
     FrameForRecording = Signal(str, object)
     
-    def __init__(self, camera_data, recording_path):
+    def __init__(self, camera_data):
         super().__init__()
         self.camera_data = camera_data
+        self.cam_id = self.camera_data.get("id")
         
         user = camera_data.get("username")
         pwd = camera_data.get("password")
@@ -89,16 +90,19 @@ class VideoWorker(QThread):
         self.processing_thread = threading.Thread(target=self._process_frames, daemon=True)
 
     def run(self):
-        self.StreamStatus.emit("Свързване...")
+        self.StreamStatus.emit(self.cam_id, "Свързване...")
         cap = cv2.VideoCapture(self.rtsp_url)
         if not cap.isOpened():
-            self.StreamStatus.emit("Грешка")
+            self.StreamStatus.emit(self.cam_id, "Грешка")
             self._is_running = False
             return
+            
+        self.StreamStatus.emit(self.cam_id, "Свързан")
+        
         while self._is_running:
             ret, frame = cap.read()
             if not ret:
-                self.StreamStatus.emit("Прекъсване")
+                self.StreamStatus.emit(self.cam_id, "Прекъсване")
                 break
             try:
                 self.frame_queue.put(frame, block=False)
@@ -117,7 +121,7 @@ class VideoWorker(QThread):
             with self.frame_lock:
                 self.latest_frame = frame.copy()
             
-            self.FrameForRecording.emit(self.camera_data.get("id"), frame)
+            self.FrameForRecording.emit(self.cam_id, frame)
             
             display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
             frame_counter += 1
@@ -127,7 +131,7 @@ class VideoWorker(QThread):
             h, w, ch = rgb_image.shape
             bytes_per_line = ch * w
             qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-            self.ImageUpdate.emit(qt_image)
+            self.ImageUpdate.emit(self.cam_id, qt_image)
         print(f"Нишката за обработка на {self.camera_data.get('name')} приключи.")
 
     def handle_motion_detection(self, processed_frame):
@@ -139,7 +143,7 @@ class VideoWorker(QThread):
         thresh = cv2.threshold(frame_delta, 30, 255, cv2.THRESH_BINARY)[1]
         motion_pixels = cv2.countNonZero(thresh)
         if motion_pixels > self.motion_sensitivity / 4: 
-            self.MotionDetected.emit(self.camera_data.get("id"))
+            self.MotionDetected.emit(self.cam_id)
         self._prev_frame_gray = gray
 
     def start(self):
