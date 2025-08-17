@@ -106,31 +106,51 @@ class RecordingWorker(QThread):
         self._run_flag = True
         self.filename = filename
         self.frame_queue = queue.Queue(maxsize=100)
-        
+        self.writer_ok = False
+
+        if width <= 0 or height <= 0:
+            print(f"Грешка: Невалидни размери ({width}x{height}) за стартиране на запис.")
+            self.writer = None
+            return
+
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         self.writer = cv2.VideoWriter(filename, fourcc, fps, (width, height))
 
+        if not self.writer.isOpened():
+            print(f"Грешка: VideoWriter не успя да се отвори за файла: {filename}")
+            self.writer = None
+        else:
+            self.writer_ok = True
+
     def run(self):
+        if not self.writer_ok or not self.writer:
+            print("Записващото устройство не е инициализирано правилно. Нишката за запис спира.")
+            return
+
         expected_width = int(self.writer.get(cv2.CAP_PROP_FRAME_WIDTH))
         expected_height = int(self.writer.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # Допълнителна проверка, в случай че get() върне 0
+        if expected_width <= 0 or expected_height <= 0:
+            print(f"Грешка: Записващото устройство върна невалидни размери ({expected_width}x{expected_height}). Записът спира.")
+            self.writer.release()
+            return
 
         while self._run_flag or not self.frame_queue.empty():
             try:
                 frame = self.frame_queue.get(timeout=1)
                 if frame is not None:
-                    # Проверка за съвпадение на размерите
                     if frame.shape[1] != expected_width or frame.shape[0] != expected_height:
-                        # Преоразмеряване на кадъра до очаквания размер
                         frame = cv2.resize(frame, (expected_width, expected_height))
-                    
                     self.writer.write(frame)
             except queue.Empty:
                 continue
+        
         self.writer.release()
         print(f"Записът е запазен в {self.filename}")
 
     def add_frame(self, frame):
-        if not self.frame_queue.full():
+        if self.writer_ok and not self.frame_queue.full():
             self.frame_queue.put(frame)
 
     def stop(self):
