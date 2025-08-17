@@ -100,12 +100,11 @@ class RecordingWorker(QThread):
         self._run_flag = True
         self.filename = filename
         
-        # **Подобрение 1: Гарантираме, че размерите са четни числа**
         self.width = int(width // 2 * 2)
         self.height = int(height // 2 * 2)
         
         self.fps = fps
-        self.frame_queue = queue.Queue(maxsize=150) # Малко по-голям буфер за изглаждане
+        self.frame_queue = queue.Queue(maxsize=150)
         self.writer = None
 
     def run(self):
@@ -113,8 +112,8 @@ class RecordingWorker(QThread):
             print(f"Грешка: Невалидни размери ({self.width}x{self.height}) за стартиране на запис. Нишката спира.")
             return
 
-        # **Подобрение 2: Смяна на кодека с модерен H.264**
-        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+        # **ПРОМЯНА: Смяна на кодека с MJPG, който е по-съвместим**
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         self.writer = cv2.VideoWriter(self.filename, fourcc, self.fps, (self.width, self.height))
 
         if not self.writer.isOpened():
@@ -128,7 +127,6 @@ class RecordingWorker(QThread):
             try:
                 frame = self.frame_queue.get(timeout=1)
                 if frame is not None:
-                    # Ако кадърът все пак е с различен размер, го преоразмеряваме
                     if frame.shape[1] != self.width or frame.shape[0] != self.height:
                         frame = cv2.resize(frame, (self.width, self.height))
                     self.writer.write(frame)

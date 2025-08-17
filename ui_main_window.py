@@ -553,7 +553,7 @@ class MainWindow(QMainWindow):
                 recording_path = self.get_recording_path_for_camera(worker)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_name = self.sanitize_filename(worker.camera_data['name'])
-                filename = recording_path / f"sched_{safe_name}_{timestamp}.mp4"
+                filename = recording_path / f"sched_{safe_name}_{timestamp}.avi"
                 
                 frame = worker.get_latest_frame()
                 if frame is None: continue
@@ -1221,7 +1221,7 @@ class MainWindow(QMainWindow):
             recording_path = self.get_recording_path_for_camera(worker)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_name = self.sanitize_filename(worker.camera_data['name'])
-            filename = recording_path / f"rec_{safe_name}_{timestamp}.mp4"
+            filename = recording_path / f"rec_{safe_name}_{timestamp}.avi"
             frame = worker.get_latest_frame()
             if frame is None:
                 if page and not remote_camera_id: page.record_button.setChecked(False)
@@ -1267,7 +1267,7 @@ class MainWindow(QMainWindow):
         settings = DataManager.load_settings()
         recording_path = Path(settings.get("recording_path"))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = recording_path / f"rec_grid_{timestamp}.mp4"
+        filename = recording_path / f"rec_grid_{timestamp}.avi"
         
         recording_fps = 20.0
         self.recording_worker = RecordingWorker(str(filename), w * cols, h * rows, recording_fps)
