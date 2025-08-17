@@ -1,3 +1,6 @@
 /data
 data/cameras.json
 data/remote_systems.json
+data/events.json
+data/settings.json
+data/users.json

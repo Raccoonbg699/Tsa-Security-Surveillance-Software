@@ -1335,7 +1335,7 @@ class MainWindow(QMainWindow):
                 canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
         
         if self.recording_worker:
-            self.recording_worker.add_frame(None, canvas)
+            self.recording_worker.add_frame(canvas)
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = self.load_cameras()
