@@ -42,16 +42,24 @@ class RemoteClient:
         """Взима списъка със записи от отдалечена инстанция."""
         return self._get_json('/api/recordings')
 
-    def download_file(self, remote_path, local_path):
-        """Изтегля файл от отдалечената система."""
+    def download_file_with_progress(self, remote_path, local_path, progress_callback, cancel_check):
+        """Изтегля файл с обратна връзка за напредъка."""
         encoded_path = urllib.parse.quote(remote_path)
         try:
-            # --- ПРОМЯНА: Увеличаваме timeout-а на 300 секунди (5 минути) ---
             with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True, timeout=300) as r:
                 r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                bytes_downloaded = 0
                 with open(local_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
+                        if cancel_check():
+                            print("Изтеглянето е прекратено от потребителя.")
+                            return False
                         f.write(chunk)
+                        bytes_downloaded += len(chunk)
+                        if total_size > 0:
+                            progress = int((bytes_downloaded / total_size) * 100)
+                            progress_callback(progress)
             return True
         except requests.exceptions.RequestException as e:
             print(f"Грешка при изтегляне на файла: {e}")

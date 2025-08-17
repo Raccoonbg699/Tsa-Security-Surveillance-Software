@@ -26,6 +26,7 @@ from ui_media_viewer import MediaViewerDialog
 from ui_info_dialog import InfoDialog
 from ui_remote_dialogs import RemoteSystemsPage
 from remote_client import RemoteClient
+from download_worker import DownloadWorker
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
@@ -278,12 +279,14 @@ class MainWindow(QMainWindow):
         page.browse_button.setVisible(is_admin_local)
         page.recording_structure_combo.setVisible(is_admin_local)
         page.save_button.setVisible(is_admin_local)
+        page.storage_limit_input.setVisible(is_admin_local)
+        page.storage_action_combo.setVisible(is_admin_local)
         form_layout = page.layout().itemAt(1)
         for i in range(form_layout.rowCount()):
             label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
             if label_item:
                 label_widget = label_item.widget()
-                if label_widget.text() in [self.translator.get_string("recordings_folder_label"), self.translator.get_string("recording_structure_label")]:
+                if label_widget.text() in [self.translator.get_string("recordings_folder_label"), self.translator.get_string("recording_structure_label"), self.translator.get_string("storage_limit_label"), self.translator.get_string("storage_action_label")]:
                     label_widget.setVisible(is_admin_local)
 
     def show_users_page(self):
@@ -619,7 +622,6 @@ class MainWindow(QMainWindow):
             for worker in workers_to_stop:
                 worker.stop()
             
-            # Изчакваме нишките да спрат, преди да продължим (важно при затваряне)
             print("Изчакване на работните нишки да приключат...")
             for worker in workers_to_stop:
                 worker.wait()
@@ -747,13 +749,25 @@ class MainWindow(QMainWindow):
             download_dir.mkdir(exist_ok=True)
             local_file_path = download_dir / Path(remote_file_path).name
             
-            success = self.remote_client.download_file(remote_file_path, str(local_file_path))
-            if success:
-                print(f"Файлът е изтеглен: {local_file_path}")
-                viewer = MediaViewerDialog(str(local_file_path), parent=self)
-                viewer.exec()
-            else:
-                QMessageBox.critical(self, "Грешка", "Неуспешно изтегляне на файла.")
+            self.progress_dialog = QProgressDialog("Изтегляне на файла...", "Прекрати", 0, 100, self)
+            self.progress_dialog.setWindowTitle("Изтегляне")
+            self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            
+            self.download_thread = QThread()
+            self.download_worker = DownloadWorker(self.remote_client, remote_file_path, str(local_file_path))
+            self.download_worker.moveToThread(self.download_thread)
+
+            self.progress_dialog.canceled.connect(self.download_worker.cancel)
+            self.download_worker.progress.connect(self.progress_dialog.setValue)
+            self.download_worker.finished.connect(self.on_download_finished)
+            self.download_worker.error.connect(self.on_download_error)
+            
+            self.download_thread.started.connect(self.download_worker.run)
+            self.download_thread.finished.connect(self.download_thread.deleteLater)
+            
+            self.download_thread.start()
+            self.progress_dialog.exec()
+            
             return
 
         if not remote_file_path or not os.path.exists(remote_file_path):
@@ -762,6 +776,29 @@ class MainWindow(QMainWindow):
         
         viewer = MediaViewerDialog(remote_file_path, parent=self)
         viewer.exec()
+
+    def on_download_finished(self, local_path):
+        """Извиква се, когато изтеглянето приключи успешно."""
+        self.progress_dialog.setValue(100)
+        self.progress_dialog.close()
+        QMessageBox.information(self, "Успех", "Файлът е изтеглен успешно.")
+        viewer = MediaViewerDialog(local_path, parent=self)
+        viewer.exec()
+        self.cleanup_download_thread()
+
+    def on_download_error(self, error_message):
+        """Извиква се, когато възникне грешка при изтеглянето."""
+        self.progress_dialog.close()
+        QMessageBox.critical(self, "Грешка", error_message)
+        self.cleanup_download_thread()
+
+    def cleanup_download_thread(self):
+        """Почиства нишката за сваляне, след като е приключила работа."""
+        if self.download_thread and self.download_thread.isRunning():
+            self.download_thread.quit()
+            self.download_thread.wait()
+        self.download_thread = None
+        self.download_worker = None
 
     def view_event_in_player(self):
         page = self.created_pages.get("recordings")
