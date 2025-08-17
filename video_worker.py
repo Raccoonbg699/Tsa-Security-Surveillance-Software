@@ -99,23 +99,24 @@ class RecordingWorker(QThread):
         super().__init__()
         self._run_flag = True
         self.filename = filename
-        self.width = int(width)
-        self.height = int(height)
+        
+        # **Подобрение 1: Гарантираме, че размерите са четни числа**
+        self.width = int(width // 2 * 2)
+        self.height = int(height // 2 * 2)
+        
         self.fps = fps
-        self.frame_queue = queue.Queue(maxsize=120) # Увеличен буфер
+        self.frame_queue = queue.Queue(maxsize=150) # Малко по-голям буфер за изглаждане
         self.writer = None
 
     def run(self):
-        # 1. Проверка на входните данни
         if self.width <= 0 or self.height <= 0:
             print(f"Грешка: Невалидни размери ({self.width}x{self.height}) за стартиране на запис. Нишката спира.")
             return
 
-        # 2. Създаване на VideoWriter в същата нишка, в която ще се използва
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        # **Подобрение 2: Смяна на кодека с модерен H.264**
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
         self.writer = cv2.VideoWriter(self.filename, fourcc, self.fps, (self.width, self.height))
 
-        # 3. Проверка дали VideoWriter е отворен успешно
         if not self.writer.isOpened():
             print(f"Грешка: VideoWriter не успя да се отвори за файла: {self.filename}. Проверете кодеците и правата за запис.")
             self.writer = None
@@ -123,30 +124,25 @@ class RecordingWorker(QThread):
         
         print(f"Записът стартира успешно. Файл: {self.filename}")
 
-        # 4. Основен цикъл за запис
         while self._run_flag or not self.frame_queue.empty():
             try:
                 frame = self.frame_queue.get(timeout=1)
                 if frame is not None:
-                    # Преоразмеряването вече е малко вероятно да е нужно, но го оставяме за всеки случай
+                    # Ако кадърът все пак е с различен размер, го преоразмеряваме
                     if frame.shape[1] != self.width or frame.shape[0] != self.height:
                         frame = cv2.resize(frame, (self.width, self.height))
                     self.writer.write(frame)
             except queue.Empty:
-                # Това е нормално, когато записът спира
                 continue
             except cv2.error as e:
-                # Прихващане на други потенциални грешки от OpenCV
                 print(f"OpenCV грешка по време на запис: {e}")
                 break
 
-        # 5. Освобождаване на ресурсите
         if self.writer:
             self.writer.release()
         print(f"Записът е спрян и запазен в {self.filename}")
 
     def add_frame(self, frame):
-        # Проверяваме дали нишката все още работи преди да добавим кадър
         if self._run_flag and not self.frame_queue.full():
             self.frame_queue.put(frame)
 
