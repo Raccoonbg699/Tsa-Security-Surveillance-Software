@@ -46,7 +46,8 @@ class RemoteClient:
         """Изтегля файл от отдалечената система."""
         encoded_path = urllib.parse.quote(remote_path)
         try:
-            with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True, timeout=15) as r:
+            # --- ПРОМЯНА: Увеличаваме timeout-а на 300 секунди (5 минути) ---
+            with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True, timeout=300) as r:
                 r.raise_for_status()
                 with open(local_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
