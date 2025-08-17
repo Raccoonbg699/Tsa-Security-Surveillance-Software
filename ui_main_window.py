@@ -26,7 +26,6 @@ from ui_media_viewer import MediaViewerDialog
 from ui_info_dialog import InfoDialog
 from ui_remote_dialogs import RemoteSystemsPage
 from remote_client import RemoteClient
-from download_worker import DownloadWorker
 
 class MainWindow(QMainWindow):
     logout_requested = Signal()
@@ -279,14 +278,12 @@ class MainWindow(QMainWindow):
         page.browse_button.setVisible(is_admin_local)
         page.recording_structure_combo.setVisible(is_admin_local)
         page.save_button.setVisible(is_admin_local)
-        page.storage_limit_input.setVisible(is_admin_local)
-        page.storage_action_combo.setVisible(is_admin_local)
         form_layout = page.layout().itemAt(1)
         for i in range(form_layout.rowCount()):
             label_item = form_layout.itemAt(i, QFormLayout.ItemRole.LabelRole)
             if label_item:
                 label_widget = label_item.widget()
-                if label_widget.text() in [self.translator.get_string("recordings_folder_label"), self.translator.get_string("recording_structure_label"), self.translator.get_string("storage_limit_label"), self.translator.get_string("storage_action_label")]:
+                if label_widget.text() in [self.translator.get_string("recordings_folder_label"), self.translator.get_string("recording_structure_label")]:
                     label_widget.setVisible(is_admin_local)
 
     def show_users_page(self):
@@ -553,7 +550,7 @@ class MainWindow(QMainWindow):
                 recording_path = self.get_recording_path_for_camera(worker)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_name = self.sanitize_filename(worker.camera_data['name'])
-                filename = recording_path / f"sched_{safe_name}_{timestamp}.avi"
+                filename = recording_path / f"sched_{safe_name}_{timestamp}.mp4"
                 
                 frame = worker.get_latest_frame()
                 if frame is None: continue
@@ -622,6 +619,7 @@ class MainWindow(QMainWindow):
             for worker in workers_to_stop:
                 worker.stop()
             
+            # Изчакваме нишките да спрат, преди да продължим (важно при затваряне)
             print("Изчакване на работните нишки да приключат...")
             for worker in workers_to_stop:
                 worker.wait()
@@ -749,25 +747,13 @@ class MainWindow(QMainWindow):
             download_dir.mkdir(exist_ok=True)
             local_file_path = download_dir / Path(remote_file_path).name
             
-            self.progress_dialog = QProgressDialog("Изтегляне на файла...", "Прекрати", 0, 100, self)
-            self.progress_dialog.setWindowTitle("Изтегляне")
-            self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
-            
-            self.download_thread = QThread()
-            self.download_worker = DownloadWorker(self.remote_client, remote_file_path, str(local_file_path))
-            self.download_worker.moveToThread(self.download_thread)
-
-            self.progress_dialog.canceled.connect(self.download_worker.cancel)
-            self.download_worker.progress.connect(self.progress_dialog.setValue)
-            self.download_worker.finished.connect(self.on_download_finished)
-            self.download_worker.error.connect(self.on_download_error)
-            
-            self.download_thread.started.connect(self.download_worker.run)
-            self.download_thread.finished.connect(self.download_thread.deleteLater)
-            
-            self.download_thread.start()
-            self.progress_dialog.exec()
-            
+            success = self.remote_client.download_file(remote_file_path, str(local_file_path))
+            if success:
+                print(f"Файлът е изтеглен: {local_file_path}")
+                viewer = MediaViewerDialog(str(local_file_path), parent=self)
+                viewer.exec()
+            else:
+                QMessageBox.critical(self, "Грешка", "Неуспешно изтегляне на файла.")
             return
 
         if not remote_file_path or not os.path.exists(remote_file_path):
@@ -776,29 +762,6 @@ class MainWindow(QMainWindow):
         
         viewer = MediaViewerDialog(remote_file_path, parent=self)
         viewer.exec()
-
-    def on_download_finished(self, local_path):
-        """Извиква се, когато изтеглянето приключи успешно."""
-        self.progress_dialog.setValue(100)
-        self.progress_dialog.close()
-        QMessageBox.information(self, "Успех", "Файлът е изтеглен успешно.")
-        viewer = MediaViewerDialog(local_path, parent=self)
-        viewer.exec()
-        self.cleanup_download_thread()
-
-    def on_download_error(self, error_message):
-        """Извиква се, когато възникне грешка при изтеглянето."""
-        self.progress_dialog.close()
-        QMessageBox.critical(self, "Грешка", error_message)
-        self.cleanup_download_thread()
-
-    def cleanup_download_thread(self):
-        """Почиства нишката за сваляне, след като е приключила работа."""
-        if self.download_thread and self.download_thread.isRunning():
-            self.download_thread.quit()
-            self.download_thread.wait()
-        self.download_thread = None
-        self.download_worker = None
 
     def view_event_in_player(self):
         page = self.created_pages.get("recordings")
@@ -1221,7 +1184,7 @@ class MainWindow(QMainWindow):
             recording_path = self.get_recording_path_for_camera(worker)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_name = self.sanitize_filename(worker.camera_data['name'])
-            filename = recording_path / f"rec_{safe_name}_{timestamp}.avi"
+            filename = recording_path / f"rec_{safe_name}_{timestamp}.mp4"
             frame = worker.get_latest_frame()
             if frame is None:
                 if page and not remote_camera_id: page.record_button.setChecked(False)
@@ -1267,7 +1230,7 @@ class MainWindow(QMainWindow):
         settings = DataManager.load_settings()
         recording_path = Path(settings.get("recording_path"))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = recording_path / f"rec_grid_{timestamp}.avi"
+        filename = recording_path / f"rec_grid_{timestamp}.mp4"
         
         recording_fps = 20.0
         self.recording_worker = RecordingWorker(str(filename), w * cols, h * rows, recording_fps)
@@ -1335,7 +1298,7 @@ class MainWindow(QMainWindow):
                 canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
         
         if self.recording_worker:
-            self.recording_worker.add_frame(canvas)
+            self.recording_worker.add_frame(None, canvas)
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = self.load_cameras()

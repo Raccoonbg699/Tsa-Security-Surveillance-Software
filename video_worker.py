@@ -1,149 +1,161 @@
 import cv2
-import queue
-from PySide6.QtCore import QThread, Signal, QTimer
-from PySide6.QtGui import QImage
-from data_manager import DataManager
+import time
+import uuid
+from pathlib import Path
 from datetime import datetime
-import numpy as np
+from queue import Queue, Full, Empty
+import threading
+from PySide6.QtCore import QThread, Signal, QTimer, QTime
+from PySide6.QtGui import QImage
+
+class RecordingWorker(QThread):
+    """
+    "Умна" нишка за запис, която поддържа постоянен FPS чрез дублиране/пропускане на кадри.
+    """
+    def __init__(self, filename, width, height, fps):
+        super().__init__()
+        self.frame_queue = Queue(maxsize=10)
+        self._is_running = True
+        self.target_fps = fps
+        self.frame_duration = 1.0 / self.target_fps
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self._video_writer = cv2.VideoWriter(str(filename), fourcc, self.target_fps, (width, height))
+
+    def run(self):
+        last_frame = None
+        next_frame_time = time.time()
+
+        while self._is_running or not self.frame_queue.empty():
+            try:
+                frame = self.frame_queue.get(timeout=self.frame_duration)
+                if frame is not None:
+                    last_frame = frame
+            except Empty:
+                if not self._is_running:
+                    break
+            
+            if last_frame is not None and self._video_writer.isOpened():
+                current_time = time.time()
+                while next_frame_time <= current_time:
+                    try:
+                        self._video_writer.write(last_frame)
+                    except cv2.error as e:
+                        print(f"Грешка при запис на кадър: {e}")
+                    next_frame_time += self.frame_duration
+        
+        if self._video_writer.isOpened():
+            self._video_writer.release()
+        print("Нишката за запис приключи коректно.")
+
+    def add_frame(self, frame):
+        if frame is not None:
+            try:
+                self.frame_queue.put_nowait(frame)
+            except Full:
+                pass
+
+    def stop(self):
+        self._is_running = False
 
 class VideoWorker(QThread):
     ImageUpdate = Signal(str, QImage)
     StreamStatus = Signal(str, str)
-    FrameForRecording = Signal(str, object)
     MotionDetected = Signal(str)
-
+    FrameForRecording = Signal(str, object)
+    
     def __init__(self, camera_data):
         super().__init__()
         self.camera_data = camera_data
-        self.camera_id = camera_data.get("id")
-        self.rtsp_url = camera_data.get("rtsp_url")
-        self._run_flag = True
-        self.latest_frame = None
-        self.last_frame_time = datetime.now()
+        self.cam_id = self.camera_data.get("id")
         
-        self.reconnect_timer = QTimer()
-        self.reconnect_timer.setSingleShot(True)
-        self.reconnect_timer.timeout.connect(self.start)
-        self.moveToThread(self)
+        user = camera_data.get("username")
+        pwd = camera_data.get("password")
+        url = camera_data.get("rtsp_url", "")
+        
+        if user and pwd and "rtsp://" in url:
+            url_parts = url.split("rtsp://")
+            self.rtsp_url = f"rtsp://{user}:{pwd}@{url_parts[1]}"
+        else:
+            self.rtsp_url = url
 
-        # Засичане на движение
-        self.motion_enabled = camera_data.get("motion_enabled", False)
-        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=50, detectShadows=False)
-        self.last_motion_time = None
-        self.motion_cooldown = 5 # секунди
+        self.frame_queue = Queue(maxsize=2)
+        self.motion_enabled = camera_data.get("motion_enabled", True)
+        self.motion_sensitivity = 500
+        self._is_running = True
+        self._prev_frame_gray = None
+        self.latest_frame = None
+        self.frame_lock = threading.Lock()
+        self.processing_thread = threading.Thread(target=self._process_frames, daemon=True)
 
     def run(self):
-        self._run_flag = True
+        self.StreamStatus.emit(self.cam_id, "Свързване...")
         cap = cv2.VideoCapture(self.rtsp_url)
-        
         if not cap.isOpened():
-            self.StreamStatus.emit(self.camera_id, "Грешка при свързване")
+            self.StreamStatus.emit(self.cam_id, "Грешка")
+            self._is_running = False
             return
-
-        self.StreamStatus.emit(self.camera_id, "Свързан")
-
-        while self._run_flag:
+            
+        self.StreamStatus.emit(self.cam_id, "Свързан")
+        
+        while self._is_running:
             ret, frame = cap.read()
             if not ret:
-                self.StreamStatus.emit(self.camera_id, "Прекъсната връзка")
+                self.StreamStatus.emit(self.cam_id, "Прекъсване")
                 break
-            
-            self.last_frame_time = datetime.now()
-            self.latest_frame = frame.copy()
-
-            if self.motion_enabled:
-                self.detect_motion(frame)
-
-            self.FrameForRecording.emit(self.camera_id, frame)
-            
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            qt_image = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_BGR888)
-            self.ImageUpdate.emit(self.camera_id, qt_image)
-        
+            try:
+                self.frame_queue.put(frame, block=False)
+            except Full:
+                pass
+            time.sleep(0.005)
         cap.release()
-        if self._run_flag:
-            print(f"Връзката с камера {self.camera_id} е загубена. Опит за повторно свързване след 5 секунди...")
-            self.StreamStatus.emit(self.camera_id, "Повторно свързване...")
+        self.frame_queue.put(None)
+        print(f"Нишката за четене на {self.camera_data.get('name')} приключи.")
 
-    def detect_motion(self, frame):
-        fg_mask = self.bg_subtractor.apply(frame)
-        thresh = cv2.threshold(fg_mask, 25, 255, cv2.THRESH_BINARY)[1]
-        dilated = cv2.dilate(thresh, None, iterations=2)
-        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        motion_detected_this_frame = False
-        for contour in contours:
-            if cv2.contourArea(contour) < 500:
-                continue
-            motion_detected_this_frame = True
-            break
-        
-        now = datetime.now()
-        if motion_detected_this_frame:
-            if self.last_motion_time is None or (now - self.last_motion_time).total_seconds() > self.motion_cooldown:
-                print(f"Движение засечено от {self.camera_data.get('name')}")
-                self.last_motion_time = now
-                self.MotionDetected.emit(self.camera_id)
+    def _process_frames(self):
+        frame_counter = 0
+        while self._is_running:
+            frame = self.frame_queue.get()
+            if frame is None: break
+            with self.frame_lock:
+                self.latest_frame = frame.copy()
+            
+            self.FrameForRecording.emit(self.cam_id, frame)
+            
+            display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
+            frame_counter += 1
+            if self.motion_enabled and frame_counter % 3 == 0:
+                self.handle_motion_detection(display_frame)
+            rgb_image = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb_image.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+            self.ImageUpdate.emit(self.cam_id, qt_image)
+        print(f"Нишката за обработка на {self.camera_data.get('name')} приключи.")
+
+    def handle_motion_detection(self, processed_frame):
+        gray = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
+        if self._prev_frame_gray is None:
+            self._prev_frame_gray = gray
+            return
+        frame_delta = cv2.absdiff(self._prev_frame_gray, gray)
+        thresh = cv2.threshold(frame_delta, 30, 255, cv2.THRESH_BINARY)[1]
+        motion_pixels = cv2.countNonZero(thresh)
+        if motion_pixels > self.motion_sensitivity / 4: 
+            self.MotionDetected.emit(self.cam_id)
+        self._prev_frame_gray = gray
+
+    def start(self):
+        self._is_running = True
+        self.processing_thread.start()
+        super().start()
+
+    def stop(self):
+        print(f"Подадена команда за спиране на нишките за {self.camera_data.get('name')}")
+        self._is_running = False
+        if self.processing_thread.is_alive():
+            self.processing_thread.join()
 
     def get_latest_frame(self):
-        if (datetime.now() - self.last_frame_time).total_seconds() > 5:
-            return None
-        return self.latest_frame
-
-    def stop(self):
-        self._run_flag = False
-
-class RecordingWorker(QThread):
-    def __init__(self, filename, width, height, fps):
-        super().__init__()
-        self._run_flag = True
-        self.filename = filename
-        
-        self.width = int(width // 2 * 2)
-        self.height = int(height // 2 * 2)
-        
-        self.fps = fps
-        self.frame_queue = queue.Queue(maxsize=150)
-        self.writer = None
-
-    def run(self):
-        if self.width <= 0 or self.height <= 0:
-            print(f"Грешка: Невалидни размери ({self.width}x{self.height}) за стартиране на запис. Нишката спира.")
-            return
-
-        # **ПРОМЯНА: Смяна на кодека с MJPG, който е по-съвместим**
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-        self.writer = cv2.VideoWriter(self.filename, fourcc, self.fps, (self.width, self.height))
-
-        if not self.writer.isOpened():
-            print(f"Грешка: VideoWriter не успя да се отвори за файла: {self.filename}. Проверете кодеците и правата за запис.")
-            self.writer = None
-            return
-        
-        print(f"Записът стартира успешно. Файл: {self.filename}")
-
-        while self._run_flag or not self.frame_queue.empty():
-            try:
-                frame = self.frame_queue.get(timeout=1)
-                if frame is not None:
-                    if frame.shape[1] != self.width or frame.shape[0] != self.height:
-                        frame = cv2.resize(frame, (self.width, self.height))
-                    self.writer.write(frame)
-            except queue.Empty:
-                continue
-            except cv2.error as e:
-                print(f"OpenCV грешка по време на запис: {e}")
-                break
-
-        if self.writer:
-            self.writer.release()
-        print(f"Записът е спрян и запазен в {self.filename}")
-
-    def add_frame(self, frame):
-        if self._run_flag and not self.frame_queue.full():
-            self.frame_queue.put(frame)
-
-    def stop(self):
-        print("Получена е заявка за спиране на записа...")
-        self._run_flag = False
+        with self.frame_lock:
+            return self.latest_frame.copy() if self.latest_frame is not None else None
