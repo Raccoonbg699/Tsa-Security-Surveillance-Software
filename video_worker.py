@@ -48,8 +48,7 @@ class RecordingWorker(QThread):
             self._video_writer.release()
         print("Нишката за запис приключи коректно.")
 
-    # --- ПРОМЯНА: Методът вече приема два аргумента, за да съответства на сигнала ---
-    def add_frame(self, cam_id, frame):
+    def add_frame(self, frame):
         if frame is not None:
             try:
                 self.frame_queue.put_nowait(frame)

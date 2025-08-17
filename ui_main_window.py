@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
         
         self.apply_role_permissions()
         
-        self.start_backend_workers() # --- ПРОМЯНА: Стартираме потоците веднага ---
+        self.start_backend_workers()
         
         btn_cameras.setChecked(True)
         self.show_cameras_page()
@@ -415,7 +415,6 @@ class MainWindow(QMainWindow):
         return total_size
 
     def check_storage_limit(self):
-        """Проверява лимита на папката и предприема действия. Връща True, ако може да се записва."""
         if self.is_remote_mode: return True
 
         settings = DataManager.load_settings()
@@ -456,7 +455,6 @@ class MainWindow(QMainWindow):
         return False
 
     def start_backend_workers(self):
-        """Стартира всички VideoWorker-и във фонов режим."""
         if self.video_workers: return
         print("Стартиране на бек-енд потоците...")
         
@@ -465,15 +463,9 @@ class MainWindow(QMainWindow):
 
         active_cameras = [cam for cam in cameras_data if cam.get("is_active")]
         for cam_data in active_cameras:
-            worker = VideoWorker(camera_data=cam_data)
-            worker.ImageUpdate.connect(self.dispatch_image_update)
-            worker.StreamStatus.connect(self.dispatch_stream_status)
-            worker.FrameForRecording.connect(self.dispatch_frame_for_recording)
-            worker.start()
-            self.video_workers[cam_data["id"]] = worker
+            self.start_single_backend_worker(cam_data)
 
     def setup_live_view_ui(self):
-        """Настройва UI за изглед на живо, като се закача към работещите потоци."""
         page = self.created_pages.get("live_view")
         if not page: return
         
@@ -494,7 +486,6 @@ class MainWindow(QMainWindow):
         self.update_grid_layout()
 
     def teardown_live_view_ui(self):
-        """Разрушава UI за изглед на живо, но оставя потоците да работят."""
         page = self.created_pages.get("live_view")
         if page:
             while page.grid_layout.count():
@@ -512,15 +503,14 @@ class MainWindow(QMainWindow):
             self.active_video_widgets[cam_id].update_status(status)
 
     def dispatch_frame_for_recording(self, cam_id, frame):
-        # Ръчен запис
         if self.recording_worker and self.recording_worker.isRunning():
             worker_of_interest, _ = self.get_camera_to_control()
             if worker_of_interest and cam_id == worker_of_interest.camera_data.get("id"):
-                self.recording_worker.add_frame(cam_id, frame)
-        # Запис по график
+                self.recording_worker.add_frame(frame)
+        
         recorder = self.scheduled_recorders.get(cam_id)
         if recorder and recorder.isRunning():
-            recorder.add_frame(cam_id, frame)
+            recorder.add_frame(frame)
     
     def check_schedules(self):
         if self.is_remote_mode: return
@@ -593,20 +583,28 @@ class MainWindow(QMainWindow):
             if cameras_data is None: return
             cam_data = next((c for c in cameras_data if c.get("id") == cam_id), None)
             if cam_data:
-                worker = VideoWorker(camera_data=cam_data)
-                worker.ImageUpdate.connect(self.dispatch_image_update)
-                worker.StreamStatus.connect(self.dispatch_stream_status)
-                worker.FrameForRecording.connect(self.dispatch_frame_for_recording)
-                worker.start()
-                self.video_workers[cam_id] = worker
+                QTimer.singleShot(5000, lambda: self.start_single_backend_worker(cam_data))
 
+    def start_single_backend_worker(self, cam_data):
+        """Стартира единичен worker, използвано при рестартиране след грешка."""
+        cam_id = cam_data.get("id")
+        if cam_id in self.video_workers: return
+        
+        worker = VideoWorker(camera_data=cam_data)
+        worker.ImageUpdate.connect(self.dispatch_image_update)
+        worker.StreamStatus.connect(self.dispatch_stream_status)
+        worker.FrameForRecording.connect(self.dispatch_frame_for_recording)
+        worker.finished.connect(lambda cid=cam_id: self.handle_worker_finished(cid))
+        worker.start()
+        self.video_workers[cam_id] = worker
+        print(f"Рестартиран е worker за {cam_data.get('name')}")
+    
     def stop_all_streams(self):
         """Вече не се използва. Запазена за съвместимост."""
         pass
         
     def stop_backend_workers(self):
-        """Спира всички потоци и записи, без да блокира интерфейса."""
-        print("Спиране на всички потоци...")
+        print("Спиране на всички бек-енд потоци...")
         if self.is_grid_recording: self.stop_grid_recording()
         if self.recording_worker:
             self.toggle_manual_recording(False)
@@ -621,12 +619,14 @@ class MainWindow(QMainWindow):
             for worker in workers_to_stop:
                 worker.stop()
             
-            wait_thread = threading.Thread(target=self._wait_for_workers_to_finish, args=(workers_to_stop,))
-            wait_thread.daemon = True
-            wait_thread.start()
+            # Изчакваме нишките да спрат, преди да продължим (важно при затваряне)
+            print("Изчакване на работните нишки да приключат...")
+            for worker in workers_to_stop:
+                worker.wait()
+            print("Всички работни нишки са приключили.")
 
         self.video_workers.clear()
-        
+    
     def _wait_for_workers_to_finish(self, workers_to_stop):
         """Тази функция работи в отделна нишка, за да изчака работниците."""
         print("Фонова нишка изчаква работниците да приключат...")
@@ -878,6 +878,8 @@ class MainWindow(QMainWindow):
             cameras_data.append(new_data)
             DataManager.save_cameras(cameras_data)
             self.refresh_cameras_view()
+            self.stop_backend_workers()
+            self.start_backend_workers()
 
     def edit_camera(self):
         page = self.created_pages.get("cameras")
@@ -896,6 +898,8 @@ class MainWindow(QMainWindow):
                     break
             DataManager.save_cameras(cameras_data)
             self.refresh_cameras_view()
+            self.stop_backend_workers()
+            self.start_backend_workers()
 
     def delete_camera(self):
         page = self.created_pages.get("cameras")
@@ -909,6 +913,8 @@ class MainWindow(QMainWindow):
             updated_cameras = [c for c in cameras_data if c.get("id") != camera_to_delete.get("id")]
             DataManager.save_cameras(updated_cameras)
             self.refresh_cameras_view()
+            self.stop_backend_workers()
+            self.start_backend_workers()
 
     def refresh_users_view(self):
         page = self.created_pages.get("users")
@@ -1200,12 +1206,6 @@ class MainWindow(QMainWindow):
                 if widget: widget.set_recording_state(False)
                 print("Ръчен запис спрян.")
     
-    def handle_single_frame_for_recording(self, cam_id, frame):
-        if self.recording_worker and self.recording_worker.isRunning():
-            worker_of_interest, _ = self.get_camera_to_control()
-            if worker_of_interest and cam_id == worker_of_interest.camera_data.get("id"):
-                self.recording_worker.add_frame(cam_id, frame)
-
     def start_grid_recording(self):
         page = self.created_pages.get("live_view")
         if not page: return
@@ -1236,10 +1236,6 @@ class MainWindow(QMainWindow):
         self.recording_worker = RecordingWorker(str(filename), w * cols, h * rows, recording_fps)
         
         self.latest_grid_frames.clear()
-        for widget in visible_widgets:
-            worker = self.video_workers.get(widget.camera_id)
-            if worker:
-                worker.FrameForRecording.connect(self._update_latest_grid_frame)
         
         self.grid_recording_timer.start(1000 / recording_fps)
         self.recording_worker.start()
@@ -1260,10 +1256,6 @@ class MainWindow(QMainWindow):
 
         self.grid_recording_timer.stop()
         
-        for worker in self.video_workers.values():
-            try: worker.FrameForRecording.disconnect(self._update_latest_grid_frame)
-            except (TypeError, RuntimeError): pass
-
         if self.recording_worker:
             self.recording_worker.stop()
             self.recording_worker.wait()
@@ -1299,14 +1291,14 @@ class MainWindow(QMainWindow):
         canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
 
         for i, widget in enumerate(visible_widgets):
-            frame = self.latest_grid_frames.get(widget.camera_id)
+            frame = self.video_workers[widget.camera_id].get_latest_frame()
             if frame is not None:
                 row, col = i // cols, i % cols
                 resized_frame = cv2.resize(frame, (w, h))
                 canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
         
         if self.recording_worker:
-            self.recording_worker.add_frame(cam_id, frame)
+            self.recording_worker.add_frame(None, canvas)
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = self.load_cameras()
