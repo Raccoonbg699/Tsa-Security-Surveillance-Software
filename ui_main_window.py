@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
 
         self.video_workers = {}
         self.active_video_widgets = {}
-        self.manual_recorders = {}
+        self.manual_recorders = {} 
         self.created_pages = {}
         
         self.scanner_thread = None
@@ -1113,47 +1113,53 @@ class MainWindow(QMainWindow):
         return visible_widgets
 
     def take_snapshot(self, remote_camera_id=None):
+        # --- ПРОМЯНА: Отделяне на логиката от интерфейса ---
         if not self.check_storage_limit(): return
-        
-        page = self.created_pages.get("live_view")
-        if not page: return
 
-        cam_id = None
-        if remote_camera_id:
-            cam_id = remote_camera_id
-        elif page.grid_1x1_button.isChecked():
-            cam_id = page.camera_selector.currentData()
-        else:
-            cam_id = "grid"
+        cam_id_to_snap = remote_camera_id
         
-        if self.is_remote_mode:
-            payload = {"camera_id": cam_id}
-            self.remote_client.send_action("snapshot", payload)
-            print(f"Изпратена заявка за снимка към отдалечена система за камера: {cam_id}")
-            return
-
-        if cam_id == "grid":
-            visible_widgets = self.get_visible_widgets()
-            if not visible_widgets: return
-            cols = 2 if page.grid_2x2_button.isChecked() else 3
-            rows = (len(visible_widgets) + cols - 1) // cols
+        # Ако е локално извикване (от бутон), определяме целта от интерфейса
+        if cam_id_to_snap is None:
+            page = self.created_pages.get("live_view")
+            if not page or self.pages.currentWidget() != page:
+                QMessageBox.warning(self, "Грешка", "Можете да правите снимки само от екрана 'Изглед на живо'.")
+                return
             
-            first_worker = self.video_workers.get(visible_widgets[0].camera_id)
-            if not first_worker: return
-            sample_frame = first_worker.get_latest_frame()
+            if page.grid_1x1_button.isChecked():
+                cam_id_to_snap = page.camera_selector.currentData()
+            else:
+                cam_id_to_snap = "grid"
+
+        if self.is_remote_mode:
+            payload = {"camera_id": cam_id_to_snap}
+            self.remote_client.send_action("snapshot", payload)
+            print(f"Изпратена заявка за снимка към отдалечена система за камера: {cam_id_to_snap}")
+            return
+        
+        # Изпълнение на снимката
+        if cam_id_to_snap == "grid":
+            # Взимаме всички активни камери, не само видимите
+            workers_to_snap = list(self.video_workers.values())
+            if not workers_to_snap: return
+
+            settings = DataManager.load_settings()
+            grid_mode = settings.get("default_grid", "2x2")
+            cols = 2 if grid_mode == "2x2" else 3
+            if grid_mode == "1x1": cols = 1
+            
+            rows = (len(workers_to_snap) + cols - 1) // cols
+            
+            sample_frame = workers_to_snap[0].get_latest_frame()
             if sample_frame is None: return
             h, w, _ = sample_frame.shape
 
             canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
-            for i, widget in enumerate(visible_widgets):
-                worker = self.video_workers.get(widget.camera_id)
-                if worker:
-                    frame = worker.get_latest_frame()
-                    if frame is not None:
-                        row, col = i // cols, i % cols
-                        canvas[row*h:(row+1)*h, col*w:(col+1)*w] = frame
+            for i, worker in enumerate(workers_to_snap):
+                frame = worker.get_latest_frame()
+                if frame is not None:
+                    row, col = i // cols, i % cols
+                    canvas[row*h:(row+1)*h, col*w:(col+1)*w] = cv2.resize(frame, (w, h))
 
-            settings = DataManager.load_settings()
             recording_path = Path(settings.get("recording_path"))
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = recording_path / f"snap_grid_{timestamp}.jpg"
@@ -1161,7 +1167,7 @@ class MainWindow(QMainWindow):
             print(f"Снимка на мрежата е запазена: {filename}")
             self.add_event("grid", "Снимка (мрежа)", str(filename))
         else:
-            worker, _ = self.get_camera_to_control(remote_camera_id=cam_id)
+            worker = self.video_workers.get(cam_id_to_snap)
             if worker:
                 frame = worker.get_latest_frame()
                 if frame is not None:
@@ -1180,25 +1186,31 @@ class MainWindow(QMainWindow):
             return
 
         page = self.created_pages.get("live_view")
-        if not page: return
         
-        cam_id = None
-        if remote_camera_id:
-             cam_id = remote_camera_id
-        elif page.grid_1x1_button.isChecked():
-            cam_id = page.camera_selector.currentData()
-        
-        if cam_id: # Запис на единична камера
-            self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
-        else: # Запис на мрежа (всички видими)
+        # --- ПРОМЯНА: Логиката вече не зависи от това дали page съществува ---
+        is_grid_view = False
+        if page and self.pages.currentWidget() == page:
+            is_grid_view = not page.grid_1x1_button.isChecked()
+
+        if remote_camera_id and remote_camera_id != "grid":
+             self.toggle_single_camera_recording(is_recording, remote_camera_id=remote_camera_id)
+        elif is_grid_view:
+            # Запис на всички видими камери
             widgets_to_record = self.get_visible_widgets()
             for widget in widgets_to_record:
                 self.toggle_single_camera_recording(is_recording, remote_camera_id=widget.camera_id)
-        
-        if is_recording:
-            page.record_button.setText(self.translator.get_string("stop_record_button"))
         else:
-            page.record_button.setText(self.translator.get_string("record_button"))
+            # Запис само на избраната камера
+            cam_id = page.camera_selector.currentData() if page else None
+            if cam_id:
+                self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
+        
+        if page:
+            if is_recording:
+                page.record_button.setText(self.translator.get_string("stop_record_button"))
+            else:
+                page.record_button.setText(self.translator.get_string("record_button"))
+
 
     def toggle_single_camera_recording(self, is_recording, remote_camera_id=None):
         worker = self.video_workers.get(remote_camera_id)
