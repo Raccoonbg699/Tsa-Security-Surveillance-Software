@@ -43,13 +43,8 @@ class MainWindow(QMainWindow):
 
         self.video_workers = {}
         self.active_video_widgets = {}
-        self.recording_worker = None
+        self.manual_recorders = {} # ПРОМЯНА: Речник за ръчни записи
         self.created_pages = {}
-        
-        self.latest_grid_frames = {}
-        self.grid_recording_timer = QTimer(self)
-        self.grid_recording_timer.timeout.connect(self._compose_and_record_grid_frame)
-        self.is_grid_recording = False
         
         self.scanner_thread = None
         self.scanner = None
@@ -503,12 +498,8 @@ class MainWindow(QMainWindow):
             self.active_video_widgets[cam_id].update_status(status)
 
     def dispatch_frame_for_recording(self, cam_id, frame):
-        if self.recording_worker and self.recording_worker.isRunning():
-            worker_of_interest, _ = self.get_camera_to_control()
-            if worker_of_interest and cam_id == worker_of_interest.camera_data.get("id"):
-                self.recording_worker.add_frame(frame)
-        
-        recorder = self.scheduled_recorders.get(cam_id)
+        # --- ПРОМЯНА: Проверка в двата речника за записващи ---
+        recorder = self.manual_recorders.get(cam_id) or self.scheduled_recorders.get(cam_id)
         if recorder and recorder.isRunning():
             recorder.add_frame(frame)
     
@@ -605,9 +596,10 @@ class MainWindow(QMainWindow):
         
     def stop_backend_workers(self):
         print("Спиране на всички бек-енд потоци...")
-        if self.is_grid_recording: self.stop_grid_recording()
-        if self.recording_worker:
-            self.toggle_manual_recording(False)
+        # --- ПРОМЯНА: Спиране на всички ръчни записи ---
+        if self.manual_recorders:
+            for cam_id in list(self.manual_recorders.keys()):
+                self.toggle_single_camera_recording(is_recording=False, remote_camera_id=cam_id)
         
         for recorder in self.scheduled_recorders.values():
             recorder.stop()
@@ -619,7 +611,6 @@ class MainWindow(QMainWindow):
             for worker in workers_to_stop:
                 worker.stop()
             
-            # Изчакваме нишките да спрат, преди да продължим (важно при затваряне)
             print("Изчакване на работните нишки да приключат...")
             for worker in workers_to_stop:
                 worker.wait()
@@ -1142,6 +1133,7 @@ class MainWindow(QMainWindow):
                     self.add_event(worker.camera_data['id'], "Снимка", str(filename))
 
     def toggle_manual_recording(self, is_recording, remote_camera_id=None):
+        # --- ПРОМЯНА: Цялостна преработка на логиката ---
         if is_recording and not self.check_storage_limit():
             page = self.created_pages.get("live_view")
             if page: page.record_button.setChecked(False)
@@ -1149,156 +1141,66 @@ class MainWindow(QMainWindow):
 
         page = self.created_pages.get("live_view")
         if not page: return
+        
+        is_grid_view = not page.grid_1x1_button.isChecked()
 
-        cam_id = None
-        if remote_camera_id:
-             cam_id = remote_camera_id
-        elif page.grid_1x1_button.isChecked():
+        if is_grid_view:
+            # Запис на всички видими камери
+            widgets_to_record = self.get_visible_widgets()
+            for widget in widgets_to_record:
+                self.toggle_single_camera_recording(is_recording, remote_camera_id=widget.camera_id)
+        else:
+            # Запис само на избраната камера
             cam_id = page.camera_selector.currentData()
-        else:
-            cam_id = "grid"
-
-        if self.is_remote_mode:
-            payload = {"camera_id": cam_id, "state": is_recording}
-            self.remote_client.send_action("toggle_record", payload)
-            print(f"Изпратена заявка за запис към отдалечена система за камера: {cam_id}, състояние: {is_recording}")
-            return
-            
-        if cam_id == "grid":
-             if is_recording: self.start_grid_recording()
-             else: self.stop_grid_recording()
-        else:
             self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
+        
+        # Актуализиране на текста на бутона
+        if is_recording:
+            page.record_button.setText(self.translator.get_string("stop_record_button"))
+        else:
+            page.record_button.setText(self.translator.get_string("record_button"))
 
     def toggle_single_camera_recording(self, is_recording, remote_camera_id=None):
-        page = self.created_pages.get("live_view")
         worker, widget = self.get_camera_to_control(remote_camera_id=remote_camera_id)
-        if not worker or not widget: 
-            if page and not remote_camera_id: page.record_button.setChecked(False)
+        
+        if self.is_remote_mode:
+            payload = {"camera_id": remote_camera_id, "state": is_recording}
+            self.remote_client.send_action("toggle_record", payload)
+            print(f"Изпратена заявка за запис към отдалечена система за камера: {remote_camera_id}, състояние: {is_recording}")
             return
 
+        if not worker or not widget: 
+            return
+
+        cam_id = worker.camera_data.get("id")
+
         if is_recording:
-            if not remote_camera_id:
-                page.record_button.setText(self.translator.get_string("stop_record_button"))
-            if self.recording_worker: return
+            if cam_id in self.manual_recorders: return # Вече се записва
+
             recording_path = self.get_recording_path_for_camera(worker)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_name = self.sanitize_filename(worker.camera_data['name'])
             filename = recording_path / f"rec_{safe_name}_{timestamp}.mp4"
+            
             frame = worker.get_latest_frame()
-            if frame is None:
-                if page and not remote_camera_id: page.record_button.setChecked(False)
-                return
+            if frame is None: return
+            
             height, width, _ = frame.shape
-            recording_fps = 20.0
-            self.recording_worker = RecordingWorker(str(filename), width, height, recording_fps)
-            self.recording_worker.start()
+            recording_fps = 25.0 # Стандартен FPS
+            
+            recorder = RecordingWorker(str(filename), width, height, recording_fps)
+            recorder.start()
+            self.manual_recorders[cam_id] = recorder
             widget.set_recording_state(True)
-            self.add_event(worker.camera_data['id'], "Ръчен запис", str(filename))
-            print(f"Ръчен запис стартиран: {filename}")
+            self.add_event(cam_id, "Ръчен запис", str(filename))
+            print(f"Ръчен запис стартиран за {safe_name}: {filename}")
         else:
-            if not remote_camera_id:
-                page.record_button.setText(self.translator.get_string("record_button"))
-            if self.recording_worker:
-                self.recording_worker.stop()
-                self.recording_worker.wait()
-                self.recording_worker = None
+            if cam_id in self.manual_recorders:
+                recorder = self.manual_recorders.pop(cam_id)
+                recorder.stop()
+                recorder.wait()
                 if widget: widget.set_recording_state(False)
-                print("Ръчен запис спрян.")
-    
-    def start_grid_recording(self):
-        page = self.created_pages.get("live_view")
-        if not page: return
-        
-        page.record_button.setText(self.translator.get_string("stop_record_button"))
-        if self.is_grid_recording: return
-
-        visible_widgets = self.get_visible_widgets()
-        if not visible_widgets:
-            page.record_button.setChecked(False)
-            return
-
-        first_worker = self.video_workers.get(visible_widgets[0].camera_id)
-        if not first_worker: return
-        sample_frame = first_worker.get_latest_frame()
-        if sample_frame is None: return
-        h, w, _ = sample_frame.shape
-        
-        cols = 2 if page.grid_2x2_button.isChecked() else 3
-        rows = (len(visible_widgets) + cols - 1) // cols
-        
-        settings = DataManager.load_settings()
-        recording_path = Path(settings.get("recording_path"))
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = recording_path / f"rec_grid_{timestamp}.mp4"
-        
-        recording_fps = 20.0
-        self.recording_worker = RecordingWorker(str(filename), w * cols, h * rows, recording_fps)
-        
-        self.latest_grid_frames.clear()
-        
-        self.grid_recording_timer.start(1000 / recording_fps)
-        self.recording_worker.start()
-        self.is_grid_recording = True
-        
-        for widget in visible_widgets:
-            widget.set_recording_state(True)
-
-        self.add_event("grid", "Запис (мрежа)", str(filename))
-        print(f"Запис на мрежата стартиран: {filename}")
-
-    def stop_grid_recording(self):
-        page = self.created_pages.get("live_view")
-        if not page: return
-        
-        page.record_button.setText(self.translator.get_string("record_button"))
-        if not self.is_grid_recording: return
-
-        self.grid_recording_timer.stop()
-        
-        if self.recording_worker:
-            self.recording_worker.stop()
-            self.recording_worker.wait()
-            self.recording_worker = None
-
-        self.is_grid_recording = False
-        
-        for widget in self.get_visible_widgets():
-            widget.set_recording_state(False)
-            
-        print("Запис на мрежата спрян.")
-
-    def _update_latest_grid_frame(self, cam_id, frame):
-        self.latest_grid_frames[cam_id] = frame
-
-    def _compose_and_record_grid_frame(self):
-        page = self.created_pages.get("live_view")
-        if not page or not self.is_grid_recording:
-            return
-            
-        visible_widgets = self.get_visible_widgets()
-        if not visible_widgets: return
-
-        first_worker = self.video_workers.get(visible_widgets[0].camera_id)
-        if not first_worker: return
-        sample_frame = first_worker.get_latest_frame()
-        if sample_frame is None: return
-        h, w, _ = sample_frame.shape
-
-        cols = 2 if page.grid_2x2_button.isChecked() else 3
-        rows = (len(visible_widgets) + cols - 1) // cols
-        
-        canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
-
-        for i, widget in enumerate(visible_widgets):
-            frame = self.video_workers[widget.camera_id].get_latest_frame()
-            if frame is not None:
-                row, col = i // cols, i % cols
-                resized_frame = cv2.resize(frame, (w, h))
-                canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
-        
-        if self.recording_worker:
-            self.recording_worker.add_frame(None, canvas)
+                print(f"Ръчен запис спрян за {worker.camera_data['name']}.")
 
     def add_event(self, camera_id, event_type, file_path):
         cameras = self.load_cameras()
