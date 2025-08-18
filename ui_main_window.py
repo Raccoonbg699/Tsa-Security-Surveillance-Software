@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
 
         self.video_workers = {}
         self.active_video_widgets = {}
-        self.manual_recorders = {} 
+        self.manual_recorders = {}
         self.created_pages = {}
         
         self.scanner_thread = None
@@ -1182,15 +1182,18 @@ class MainWindow(QMainWindow):
         page = self.created_pages.get("live_view")
         if not page: return
         
-        is_grid_view = not page.grid_1x1_button.isChecked()
-
-        if is_grid_view:
+        cam_id = None
+        if remote_camera_id:
+             cam_id = remote_camera_id
+        elif page.grid_1x1_button.isChecked():
+            cam_id = page.camera_selector.currentData()
+        
+        if cam_id: # Запис на единична камера
+            self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
+        else: # Запис на мрежа (всички видими)
             widgets_to_record = self.get_visible_widgets()
             for widget in widgets_to_record:
                 self.toggle_single_camera_recording(is_recording, remote_camera_id=widget.camera_id)
-        else:
-            cam_id = page.camera_selector.currentData()
-            self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
         
         if is_recording:
             page.record_button.setText(self.translator.get_string("stop_record_button"))
@@ -1198,7 +1201,8 @@ class MainWindow(QMainWindow):
             page.record_button.setText(self.translator.get_string("record_button"))
 
     def toggle_single_camera_recording(self, is_recording, remote_camera_id=None):
-        worker, widget = self.get_camera_to_control(remote_camera_id=remote_camera_id)
+        worker = self.video_workers.get(remote_camera_id)
+        widget = self.active_video_widgets.get(remote_camera_id)
         
         if self.is_remote_mode:
             payload = {"camera_id": remote_camera_id, "state": is_recording}
@@ -1206,7 +1210,8 @@ class MainWindow(QMainWindow):
             print(f"Изпратена заявка за запис към отдалечена система за камера: {remote_camera_id}, състояние: {is_recording}")
             return
 
-        if not worker or not widget: 
+        if not worker:
+            print(f"Грешка: Не е намерен worker за камера ID {remote_camera_id}")
             return
 
         cam_id = worker.camera_data.get("id")
@@ -1220,7 +1225,9 @@ class MainWindow(QMainWindow):
             filename = recording_path / f"rec_{safe_name}_{timestamp}.mp4"
             
             frame = worker.get_latest_frame()
-            if frame is None: return
+            if frame is None:
+                print(f"Грешка: Не може да се вземе кадър от {safe_name} за стартиране на записа.")
+                return
             
             height, width, _ = frame.shape
             recording_fps = 25.0
@@ -1228,7 +1235,10 @@ class MainWindow(QMainWindow):
             recorder = RecordingWorker(str(filename), width, height, recording_fps)
             recorder.start()
             self.manual_recorders[cam_id] = recorder
-            widget.set_recording_state(True)
+            
+            if widget:
+                widget.set_recording_state(True)
+            
             self.add_event(cam_id, "Ръчен запис", str(filename))
             print(f"Ръчен запис стартиран за {safe_name}: {filename}")
         else:
@@ -1236,7 +1246,8 @@ class MainWindow(QMainWindow):
                 recorder = self.manual_recorders.pop(cam_id)
                 recorder.stop()
                 recorder.wait()
-                if widget: widget.set_recording_state(False)
+                if widget:
+                    widget.set_recording_state(False)
                 print(f"Ръчен запис спрян за {worker.camera_data['name']}.")
 
     def add_event(self, camera_id, event_type, file_path):
