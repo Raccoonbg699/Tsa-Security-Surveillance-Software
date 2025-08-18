@@ -27,6 +27,30 @@ from ui_info_dialog import InfoDialog
 from ui_remote_dialogs import RemoteSystemsPage
 from remote_client import RemoteClient
 
+class DownloadWorker(QThread):
+    """Нишка за изтегляне на файлове без да блокира интерфейса."""
+    progress = Signal(int)
+    finished = Signal(bool, str) # success (bool), path_or_error (str)
+
+    def __init__(self, remote_client, remote_path, local_path):
+        super().__init__()
+        self.remote_client = remote_client
+        self.remote_path = remote_path
+        self.local_path = local_path
+        self._is_cancelled = False
+
+    def run(self):
+        success, path_or_error = self.remote_client.download_file(
+            self.remote_path,
+            self.local_path,
+            progress_callback=self.progress.emit,
+            check_cancel_callback=lambda: self._is_cancelled
+        )
+        self.finished.emit(success, path_or_error)
+
+    def cancel(self):
+        self._is_cancelled = True
+
 class MainWindow(QMainWindow):
     logout_requested = Signal()
     restart_requested = Signal()
@@ -43,7 +67,7 @@ class MainWindow(QMainWindow):
 
         self.video_workers = {}
         self.active_video_widgets = {}
-        self.manual_recorders = {} # ПРОМЯНА: Речник за ръчни записи
+        self.manual_recorders = {} 
         self.created_pages = {}
         
         self.scanner_thread = None
@@ -312,7 +336,7 @@ class MainWindow(QMainWindow):
             return
         self.progress_dialog = QProgressDialog("Сканиране на мрежата за камери...", "Отказ", 0, 100, self)
         self.progress_dialog.setWindowTitle("Сканиране")
-        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
         self.scanner_thread = QThread()
         self.scanner = NetworkScanner(subnet)
         self.scanner.moveToThread(self.scanner_thread)
@@ -498,7 +522,6 @@ class MainWindow(QMainWindow):
             self.active_video_widgets[cam_id].update_status(status)
 
     def dispatch_frame_for_recording(self, cam_id, frame):
-        # --- ПРОМЯНА: Проверка в двата речника за записващи ---
         recorder = self.manual_recorders.get(cam_id) or self.scheduled_recorders.get(cam_id)
         if recorder and recorder.isRunning():
             recorder.add_frame(frame)
@@ -596,7 +619,6 @@ class MainWindow(QMainWindow):
         
     def stop_backend_workers(self):
         print("Спиране на всички бек-енд потоци...")
-        # --- ПРОМЯНА: Спиране на всички ръчни записи ---
         if self.manual_recorders:
             for cam_id in list(self.manual_recorders.keys()):
                 self.toggle_single_camera_recording(is_recording=False, remote_camera_id=cam_id)
@@ -738,13 +760,19 @@ class MainWindow(QMainWindow):
             download_dir.mkdir(exist_ok=True)
             local_file_path = download_dir / Path(remote_file_path).name
             
-            success = self.remote_client.download_file(remote_file_path, str(local_file_path))
-            if success:
-                print(f"Файлът е изтеглен: {local_file_path}")
-                viewer = MediaViewerDialog(str(local_file_path), parent=self)
-                viewer.exec()
-            else:
-                QMessageBox.critical(self, "Грешка", "Неуспешно изтегляне на файла.")
+            self.download_worker = DownloadWorker(self.remote_client, remote_file_path, str(local_file_path))
+            
+            self.progress_dialog = QProgressDialog("Изтегляне на файла...", "Отказ", 0, 100, self)
+            self.progress_dialog.setWindowTitle("Изтегляне")
+            self.progress_dialog.setWindowModality(Qt.WindowModal)
+            
+            self.download_worker.progress.connect(self.progress_dialog.setValue)
+            self.download_worker.finished.connect(self.on_download_finished)
+            self.progress_dialog.canceled.connect(self.download_worker.cancel)
+            
+            self.download_worker.start()
+            self.progress_dialog.show()
+            
             return
 
         if not remote_file_path or not os.path.exists(remote_file_path):
@@ -753,6 +781,19 @@ class MainWindow(QMainWindow):
         
         viewer = MediaViewerDialog(remote_file_path, parent=self)
         viewer.exec()
+
+    def on_download_finished(self, success, path_or_error):
+        self.progress_dialog.close()
+        self.download_worker.quit()
+        self.download_worker.wait()
+        self.download_worker = None
+        
+        if success:
+            QMessageBox.information(self, "Успех", f"Файлът е изтеглен успешно в:\n{path_or_error}")
+            viewer = MediaViewerDialog(path_or_error, parent=self)
+            viewer.exec()
+        else:
+            QMessageBox.critical(self, "Грешка при изтегляне", path_or_error)
 
     def view_event_in_player(self):
         page = self.created_pages.get("recordings")
@@ -1133,7 +1174,6 @@ class MainWindow(QMainWindow):
                     self.add_event(worker.camera_data['id'], "Снимка", str(filename))
 
     def toggle_manual_recording(self, is_recording, remote_camera_id=None):
-        # --- ПРОМЯНА: Цялостна преработка на логиката ---
         if is_recording and not self.check_storage_limit():
             page = self.created_pages.get("live_view")
             if page: page.record_button.setChecked(False)
@@ -1145,16 +1185,13 @@ class MainWindow(QMainWindow):
         is_grid_view = not page.grid_1x1_button.isChecked()
 
         if is_grid_view:
-            # Запис на всички видими камери
             widgets_to_record = self.get_visible_widgets()
             for widget in widgets_to_record:
                 self.toggle_single_camera_recording(is_recording, remote_camera_id=widget.camera_id)
         else:
-            # Запис само на избраната камера
             cam_id = page.camera_selector.currentData()
             self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
         
-        # Актуализиране на текста на бутона
         if is_recording:
             page.record_button.setText(self.translator.get_string("stop_record_button"))
         else:
@@ -1175,7 +1212,7 @@ class MainWindow(QMainWindow):
         cam_id = worker.camera_data.get("id")
 
         if is_recording:
-            if cam_id in self.manual_recorders: return # Вече се записва
+            if cam_id in self.manual_recorders: return
 
             recording_path = self.get_recording_path_for_camera(worker)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1186,7 +1223,7 @@ class MainWindow(QMainWindow):
             if frame is None: return
             
             height, width, _ = frame.shape
-            recording_fps = 25.0 # Стандартен FPS
+            recording_fps = 25.0
             
             recorder = RecordingWorker(str(filename), width, height, recording_fps)
             recorder.start()

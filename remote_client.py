@@ -42,22 +42,33 @@ class RemoteClient:
         """Взима списъка със записи от отдалечена инстанция."""
         return self._get_json('/api/recordings')
 
-    def download_file(self, remote_path, local_path):
-        """Изтегля файл от отдалечената система."""
+    def download_file(self, remote_path, local_path, progress_callback=None, check_cancel_callback=None):
+        """Изтегля файл от отдалечената система с опция за прогрес и прекратяване."""
         encoded_path = urllib.parse.quote(remote_path)
         try:
-            with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True, timeout=15) as r:
+            with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True, timeout=30) as r:
                 r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                bytes_downloaded = 0
                 with open(local_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
+                        if check_cancel_callback and check_cancel_callback():
+                            print("Изтеглянето е прекратено от потребителя.")
+                            return False, "Download canceled"
                         f.write(chunk)
-            return True
+                        bytes_downloaded += len(chunk)
+                        if progress_callback and total_size > 0:
+                            progress = int((bytes_downloaded / total_size) * 100)
+                            progress_callback(progress)
+            return True, str(local_path)
         except requests.exceptions.RequestException as e:
-            print(f"Грешка при изтегляне на файла: {e}")
-            return False
+            error_message = f"Грешка при изтегляне на файла: {e}"
+            print(error_message)
+            return False, error_message
         except Exception as e:
-            print(f"Грешка при запис на файла: {e}")
-            return False
+            error_message = f"Грешка при запис на файла: {e}"
+            print(error_message)
+            return False, error_message
 
     def send_action(self, action, payload):
         """Изпраща команда към отдалечения сървър."""
