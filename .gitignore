@@ -1,3 +1,4 @@
 /data
 data/cameras.json
 data/remote_systems.json
+/__pycache__

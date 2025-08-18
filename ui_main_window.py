@@ -226,7 +226,7 @@ class MainWindow(QMainWindow):
             if page_name == "live_view":
                 page = LiveViewPage()
                 page.page_name = page_name
-                page.snapshot_button.clicked.connect(self.take_snapshot)
+                page.snapshot_button.clicked.connect(lambda: self.take_snapshot())
                 page.record_button.toggled.connect(self.toggle_manual_recording)
                 page.grid_1x1_button.clicked.connect(self.update_grid_layout)
                 page.grid_2x2_button.clicked.connect(self.update_grid_layout)
@@ -1113,71 +1113,114 @@ class MainWindow(QMainWindow):
         return visible_widgets
 
     def take_snapshot(self, remote_camera_id=None):
-        # --- ПРОМЯНА: Отделяне на логиката от интерфейса ---
-        if not self.check_storage_limit(): return
+        if not self.check_storage_limit():
+            return
 
-        cam_id_to_snap = remote_camera_id
-        
-        # Ако е локално извикване (от бутон), определяме целта от интерфейса
-        if cam_id_to_snap is None:
-            page = self.created_pages.get("live_view")
-            if not page or self.pages.currentWidget() != page:
-                QMessageBox.warning(self, "Грешка", "Можете да правите снимки само от екрана 'Изглед на живо'.")
-                return
-            
-            if page.grid_1x1_button.isChecked():
-                cam_id_to_snap = page.camera_selector.currentData()
+        is_remote_call = remote_camera_id is not None
+        target_cam_id = None
+        is_grid_snapshot = False
+
+        if is_remote_call:
+            if remote_camera_id == "grid":
+                is_grid_snapshot = True
             else:
-                cam_id_to_snap = "grid"
+                target_cam_id = remote_camera_id
+        else:
+            page = self.created_pages.get("live_view")
+            if page and self.pages.currentWidget() == page:
+                if page.grid_1x1_button.isChecked():
+                    target_cam_id = page.camera_selector.currentData()
+                else:
+                    is_grid_snapshot = True
+            else:
+                 QMessageBox.warning(self, "Грешка", "Можете да правите снимки само от екрана 'Изглед на живо'.")
+                 return
 
         if self.is_remote_mode:
-            payload = {"camera_id": cam_id_to_snap}
-            self.remote_client.send_action("snapshot", payload)
-            print(f"Изпратена заявка за снимка към отдалечена система за камера: {cam_id_to_snap}")
+            target = "grid" if is_grid_snapshot else target_cam_id
+            if target:
+                payload = {"camera_id": target}
+                self.remote_client.send_action("snapshot", payload)
+                print(f"Изпратена заявка за снимка към отдалечена система за камера: {target}")
             return
-        
-        # Изпълнение на снимката
-        if cam_id_to_snap == "grid":
-            # Взимаме всички активни камери, не само видимите
-            workers_to_snap = list(self.video_workers.values())
-            if not workers_to_snap: return
 
-            settings = DataManager.load_settings()
-            grid_mode = settings.get("default_grid", "2x2")
-            cols = 2 if grid_mode == "2x2" else 3
-            if grid_mode == "1x1": cols = 1
+        if is_grid_snapshot:
+            self._take_grid_snapshot(is_remote=is_remote_call)
+        elif target_cam_id:
+            self._take_single_snapshot(target_cam_id)
             
-            rows = (len(workers_to_snap) + cols - 1) // cols
-            
-            sample_frame = workers_to_snap[0].get_latest_frame()
-            if sample_frame is None: return
-            h, w, _ = sample_frame.shape
+    def _take_single_snapshot(self, cam_id):
+        worker = self.video_workers.get(cam_id)
+        if not worker:
+            print(f"Грешка: Не е намерен worker за снимка на камера ID {cam_id}")
+            return
 
-            canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
-            for i, worker in enumerate(workers_to_snap):
-                frame = worker.get_latest_frame()
-                if frame is not None:
-                    row, col = i // cols, i % cols
-                    canvas[row*h:(row+1)*h, col*w:(col+1)*w] = cv2.resize(frame, (w, h))
-
-            recording_path = Path(settings.get("recording_path"))
+        frame = worker.get_latest_frame()
+        if frame is not None:
+            recording_path = self.get_recording_path_for_camera(worker)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = recording_path / f"snap_grid_{timestamp}.jpg"
-            cv2.imwrite(str(filename), canvas)
-            print(f"Снимка на мрежата е запазена: {filename}")
-            self.add_event("grid", "Снимка (мрежа)", str(filename))
+            safe_name = self.sanitize_filename(worker.camera_data['name'])
+            filename = recording_path / f"snap_{safe_name}_{timestamp}.jpg"
+            cv2.imwrite(str(filename), frame)
+            print(f"Снимка запазена: {filename}")
+            self.add_event(worker.camera_data['id'], "Снимка", str(filename))
+
+    def _take_grid_snapshot(self, is_remote):
+        workers_to_snap = []
+        cols = 1
+
+        if is_remote:
+            workers_to_snap = list(self.video_workers.values())
+            num_cams = len(workers_to_snap)
+            if num_cams <= 1:
+                cols = 1
+            elif num_cams <= 4:
+                cols = 2
+            else:
+                cols = 3
         else:
-            worker = self.video_workers.get(cam_id_to_snap)
-            if worker:
-                frame = worker.get_latest_frame()
-                if frame is not None:
-                    recording_path = self.get_recording_path_for_camera(worker)
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    safe_name = self.sanitize_filename(worker.camera_data['name'])
-                    filename = recording_path / f"snap_{safe_name}_{timestamp}.jpg"
-                    cv2.imwrite(str(filename), frame)
-                    print(f"Снимка запазена: {filename}")
-                    self.add_event(worker.camera_data['id'], "Снимка", str(filename))
+            page = self.created_pages.get("live_view")
+            if not page: return
+            widgets_to_snap = self.get_visible_widgets()
+            workers_to_snap = [self.video_workers.get(w.camera_id) for w in widgets_to_snap if self.video_workers.get(w.camera_id)]
+            if page.grid_3x3_button.isChecked():
+                cols = 3
+            elif page.grid_2x2_button.isChecked():
+                cols = 2
+            else:
+                cols = 1
+
+        if not workers_to_snap: return
+
+        rows = (len(workers_to_snap) + cols - 1) // cols
+        
+        sample_frame = None
+        for w in workers_to_snap:
+            sample_frame = w.get_latest_frame()
+            if sample_frame is not None:
+                break
+        if sample_frame is None: return
+
+        h, w, _ = sample_frame.shape
+        canvas = np.zeros((h * rows, w * cols, 3), dtype=np.uint8)
+        
+        for i, worker in enumerate(workers_to_snap):
+            frame = worker.get_latest_frame()
+            if frame is not None:
+                row, col = i // cols, i % cols
+                try:
+                    resized_frame = cv2.resize(frame, (w, h))
+                    canvas[row*h:(row+1)*h, col*w:(col+1)*w] = resized_frame
+                except cv2.error as e:
+                    print(f"Грешка при оразмеряване на кадър за {worker.camera_data['name']}: {e}")
+
+        settings = DataManager.load_settings()
+        recording_path = Path(settings.get("recording_path"))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = recording_path / f"snap_grid_{timestamp}.jpg"
+        cv2.imwrite(str(filename), canvas)
+        print(f"Снимка на мрежата е запазена: {filename}")
+        self.add_event("grid", "Снимка (мрежа)", str(filename))
 
     def toggle_manual_recording(self, is_recording, remote_camera_id=None):
         if is_recording and not self.check_storage_limit():
@@ -1187,7 +1230,6 @@ class MainWindow(QMainWindow):
 
         page = self.created_pages.get("live_view")
         
-        # --- ПРОМЯНА: Логиката вече не зависи от това дали page съществува ---
         is_grid_view = False
         if page and self.pages.currentWidget() == page:
             is_grid_view = not page.grid_1x1_button.isChecked()
@@ -1195,12 +1237,10 @@ class MainWindow(QMainWindow):
         if remote_camera_id and remote_camera_id != "grid":
              self.toggle_single_camera_recording(is_recording, remote_camera_id=remote_camera_id)
         elif is_grid_view:
-            # Запис на всички видими камери
             widgets_to_record = self.get_visible_widgets()
             for widget in widgets_to_record:
                 self.toggle_single_camera_recording(is_recording, remote_camera_id=widget.camera_id)
         else:
-            # Запис само на избраната камера
             cam_id = page.camera_selector.currentData() if page else None
             if cam_id:
                 self.toggle_single_camera_recording(is_recording, remote_camera_id=cam_id)
