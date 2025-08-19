@@ -6,6 +6,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from data_manager import DataManager
+import shutil
 
 def is_authenticated(auth_header):
     """Проверява Authorization хедъра за валидни потребителски данни."""
@@ -74,7 +75,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                         fs = os.fstat(f.fileno())
                         self.send_header("Content-Length", str(fs.st_size))
                         self.end_headers()
-                        self.wfile.write(f.read())
+                        shutil.copyfileobj(f, self.wfile)
                 except Exception as e:
                     self._send_text_response(500, f"Server Error: {e}")
             else:
