@@ -5,7 +5,11 @@ import urllib.parse
 
 class RemoteClient:
     def __init__(self, host, port=8989, username=None, password=None):
-        self.base_url = f"http://{host}:{port}"
+        if host.startswith("http://") or host.startswith("https://"):
+            self.base_url = host
+        else:
+            self.base_url = f"http://{host}:{port}"
+
         self.auth_headers = {}
         if username and password:
             credentials = f"{username}:{password}"
@@ -46,7 +50,8 @@ class RemoteClient:
         """Изтегля файл от отдалечената система с опция за прогрес и прекратяване."""
         encoded_path = urllib.parse.quote(remote_path)
         try:
-            with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True, timeout=30) as r:
+            # --- ПРОМЯНА: Премахваме timeout параметъра ---
+            with requests.get(f"{self.base_url}/api/download?path={encoded_path}", headers=self.auth_headers, stream=True) as r:
                 r.raise_for_status()
                 total_size = int(r.headers.get('content-length', 0))
                 bytes_downloaded = 0
