@@ -153,8 +153,10 @@ class VideoWorker(QThread):
     def stop(self):
         print(f"Подадена команда за спиране на нишките за {self.camera_data.get('name')}")
         self._is_running = False
-        if self.processing_thread.is_alive():
-            self.processing_thread.join()
+        try:
+            self.frame_queue.put_nowait(None)
+        except Full:
+            pass
 
     def get_latest_frame(self):
         with self.frame_lock:

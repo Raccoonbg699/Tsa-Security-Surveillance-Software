@@ -4,7 +4,7 @@ from pathlib import Path
 from queue import Queue
 from PySide6.QtWidgets import QApplication
 
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|timeout;5000"
 
 from ui_login_window import LoginWindow
 from ui_main_window import MainWindow

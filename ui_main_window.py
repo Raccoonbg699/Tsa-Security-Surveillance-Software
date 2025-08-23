@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 import cv2
 import numpy as np
-from queue import Empty
+from queue import Empty, Full
 import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
@@ -28,9 +28,8 @@ from ui_remote_dialogs import RemoteSystemsPage
 from remote_client import RemoteClient
 
 class DownloadWorker(QThread):
-    """Нишка за изтегляне на файлове без да блокира интерфейса."""
     progress = Signal(int)
-    finished = Signal(bool, str) # success (bool), path_or_error (str)
+    finished = Signal(bool, str)
 
     def __init__(self, remote_client, remote_path, local_path):
         super().__init__()
@@ -628,15 +627,12 @@ class MainWindow(QMainWindow):
             recorder.wait()
         self.scheduled_recorders.clear()
 
+        # This is the non-blocking part
         if self.video_workers:
-            workers_to_stop = list(self.video_workers.values())
-            for worker in workers_to_stop:
+            print("Подаване на команда за спиране към всички работни нишки...")
+            for worker in self.video_workers.values():
                 worker.stop()
-            
-            print("Изчакване на работните нишки да приключат...")
-            for worker in workers_to_stop:
-                worker.wait()
-            print("Всички работни нишки са приключили.")
+            print("Командите са подадени. Приложението ще се затвори.")
 
         self.video_workers.clear()
     
@@ -904,14 +900,21 @@ class MainWindow(QMainWindow):
         dialog = CameraDialog(parent=self)
         if dialog.exec():
             new_data = dialog.get_data()
-            if not new_data["name"] or not new_data["rtsp_url"]: return
+            if not new_data["name"] or not new_data["rtsp_url"]:
+                return
             new_data["id"] = str(uuid.uuid4())
             cameras_data = DataManager.load_cameras()
             cameras_data.append(new_data)
             DataManager.save_cameras(cameras_data)
+            
+            # Start worker for the new camera only
+            if new_data.get("is_active"):
+                self.start_single_backend_worker(new_data)
+                
             self.refresh_cameras_view()
-            self.stop_backend_workers()
-            self.start_backend_workers()
+            if "live_view" in self.created_pages and self.pages.currentWidget() == self.created_pages["live_view"]:
+                self.teardown_live_view_ui()
+                self.setup_live_view_ui()
 
     def edit_camera(self):
         page = self.created_pages.get("cameras")
@@ -920,18 +923,36 @@ class MainWindow(QMainWindow):
         if not selected_items: return
         camera_to_edit = selected_items[0].data(Qt.ItemDataRole.UserRole)
         dialog = CameraDialog(camera_data=camera_to_edit, parent=self)
+
         if dialog.exec():
             updated_data = dialog.get_data()
-            if not updated_data["name"] or not updated_data["rtsp_url"]: return
+            if not updated_data["name"] or not updated_data["rtsp_url"]:
+                return
+            
+            cam_id_to_edit = camera_to_edit.get("id")
+            updated_data["id"] = cam_id_to_edit
+            
+            # Stop the old worker if it exists
+            if cam_id_to_edit in self.video_workers:
+                worker = self.video_workers.pop(cam_id_to_edit)
+                worker.stop()
+                print(f"Спрян е worker за редактиране на камера: {camera_to_edit.get('name')}")
+            
             cameras_data = DataManager.load_cameras()
             for i, cam in enumerate(cameras_data):
-                if cam.get("id") == camera_to_edit.get("id"):
+                if cam.get("id") == cam_id_to_edit:
                     cameras_data[i].update(updated_data)
                     break
             DataManager.save_cameras(cameras_data)
+            
+            # Start a new worker with the updated data if active
+            if updated_data.get("is_active"):
+                self.start_single_backend_worker(updated_data)
+
             self.refresh_cameras_view()
-            self.stop_backend_workers()
-            self.start_backend_workers()
+            if "live_view" in self.created_pages and self.pages.currentWidget() == self.created_pages["live_view"]:
+                self.teardown_live_view_ui()
+                self.setup_live_view_ui()
 
     def delete_camera(self):
         page = self.created_pages.get("cameras")
@@ -939,14 +960,33 @@ class MainWindow(QMainWindow):
         selected_items = page.list_widget.selectedItems()
         if not selected_items: return
         camera_to_delete = selected_items[0].data(Qt.ItemDataRole.UserRole)
+
         reply = QMessageBox.question(self, "Потвърждение", f"Изтриване на '{camera_to_delete['name']}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
         if reply == QMessageBox.StandardButton.Yes:
+            cam_id_to_delete = camera_to_delete.get("id")
+
+            if cam_id_to_delete in self.video_workers:
+                worker = self.video_workers.pop(cam_id_to_delete)
+                worker.stop()
+                print(f"Спрян е worker за камера: {camera_to_delete.get('name')}")
+
             cameras_data = DataManager.load_cameras()
-            updated_cameras = [c for c in cameras_data if c.get("id") != camera_to_delete.get("id")]
+            updated_cameras = [c for c in cameras_data if c.get("id") != cam_id_to_delete]
             DataManager.save_cameras(updated_cameras)
+
+            if cam_id_to_delete in self.active_video_widgets:
+                widget = self.active_video_widgets.pop(cam_id_to_delete)
+                widget.setParent(None)
+                widget.deleteLater()
+
             self.refresh_cameras_view()
-            self.stop_backend_workers()
-            self.start_backend_workers()
+            if "live_view" in self.created_pages:
+                self.update_grid_layout() 
+            
+            if hasattr(self, 'add_log'):
+                self.add_log(f"Камера '{camera_to_delete['name']}' е изтрита.")
+
 
     def refresh_users_view(self):
         page = self.created_pages.get("users")
