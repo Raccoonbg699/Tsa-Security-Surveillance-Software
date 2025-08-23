@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1280, 720)
 
         self.video_workers = {}
+        self.zombie_workers = [] # Списък за "изоставени" нишки, които да се самоизключат
         self.active_video_widgets = {}
         self.manual_recorders = {} 
         self.created_pages = {}
@@ -612,36 +613,30 @@ class MainWindow(QMainWindow):
         self.video_workers[cam_id] = worker
         print(f"Рестартиран е worker за {cam_data.get('name')}")
     
-    def stop_all_streams(self):
-        """Вече не се използва. Запазена за съвместимост."""
-        pass
-        
     def stop_backend_workers(self):
-        print("Спиране на всички бек-енд потоци...")
-        if self.manual_recorders:
-            for cam_id in list(self.manual_recorders.keys()):
-                self.toggle_single_camera_recording(is_recording=False, remote_camera_id=cam_id)
-        
-        for recorder in self.scheduled_recorders.values():
-            recorder.stop()
-            recorder.wait()
+        print("Подаване на команда за спиране към всички бек-енд потоци...")
+
+        # Stop recording threads first and wait for them, as they are critical for file integrity.
+        # This part should be quick.
+        for rec in list(self.manual_recorders.values()):
+            rec.stop()
+            rec.wait()
+        self.manual_recorders.clear()
+
+        for rec in list(self.scheduled_recorders.values()):
+            rec.stop()
+            rec.wait()
         self.scheduled_recorders.clear()
-
-        # This is the non-blocking part
+        
+        # Signal all video workers to stop and move them to a zombie list
+        # to prevent them from being garbage collected while running.
         if self.video_workers:
-            print("Подаване на команда за спиране към всички работни нишки...")
-            for worker in self.video_workers.values():
+            for cam_id, worker in self.video_workers.items():
                 worker.stop()
-            print("Командите са подадени. Приложението ще се затвори.")
-
-        self.video_workers.clear()
-    
-    def _wait_for_workers_to_finish(self, workers_to_stop):
-        """Тази функция работи в отделна нишка, за да изчака работниците."""
-        print("Фонова нишка изчаква работниците да приключат...")
-        for worker in workers_to_stop:
-            worker.wait()
-        print("Всички стари работни нишки са приключили.")
+                self.zombie_workers.append(worker) # Keep reference to prevent crash
+            print("Командите за спиране са подадени.")
+        
+        self.video_workers.clear() # Now it's safe to clear the main dictionary
     
     def load_cameras(self):
         """Зарежда камерите или от локален файл, или от отдалечена система."""
@@ -907,7 +902,6 @@ class MainWindow(QMainWindow):
             cameras_data.append(new_data)
             DataManager.save_cameras(cameras_data)
             
-            # Start worker for the new camera only
             if new_data.get("is_active"):
                 self.start_single_backend_worker(new_data)
                 
@@ -932,7 +926,6 @@ class MainWindow(QMainWindow):
             cam_id_to_edit = camera_to_edit.get("id")
             updated_data["id"] = cam_id_to_edit
             
-            # Stop the old worker if it exists
             if cam_id_to_edit in self.video_workers:
                 worker = self.video_workers.pop(cam_id_to_edit)
                 worker.stop()
@@ -945,7 +938,6 @@ class MainWindow(QMainWindow):
                     break
             DataManager.save_cameras(cameras_data)
             
-            # Start a new worker with the updated data if active
             if updated_data.get("is_active"):
                 self.start_single_backend_worker(updated_data)
 
